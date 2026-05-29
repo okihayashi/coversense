@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CoverSense</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-label="Album cover genre predictor">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">CoverSense</p>
+            <h1>Album cover genre inference</h1>
+          </div>
+          <div class="model-pill" aria-label="Current model type">
+            <span class="status-dot"></span>
+            Visual heuristic model
+          </div>
+        </header>
+
+        <div class="main-grid">
+          <section class="input-panel" aria-label="Album cover input">
+            <label class="drop-zone" id="dropZone">
+              <input id="fileInput" type="file" accept="image/*">
+              <span class="drop-icon" aria-hidden="true">+</span>
+              <span class="drop-title">Drop album cover</span>
+              <span class="drop-meta">PNG, JPG, WebP</span>
+            </label>
+
+            <div class="preview-wrap">
+              <canvas id="previewCanvas" width="720" height="720" aria-label="Album cover preview"></canvas>
+            </div>
+
+            <div class="sample-row" aria-label="Sample covers">
+              <button class="sample-card" type="button" data-sample="electronic">
+                <span class="sample-swatch swatch-electronic"></span>
+                Electronic
+              </button>
+              <button class="sample-card" type="button" data-sample="metal">
+                <span class="sample-swatch swatch-metal"></span>
+                Metal
+              </button>
+              <button class="sample-card" type="button" data-sample="jazz">
+                <span class="sample-swatch swatch-jazz"></span>
+                Jazz
+              </button>
+              <button class="sample-card" type="button" data-sample="pop">
+                <span class="sample-swatch swatch-pop"></span>
+                Pop
+              </button>
+            </div>
+          </section>
+
+          <section class="results-panel" aria-label="Prediction results">
+            <div class="prediction-card">
+              <p class="section-label">Prediction</p>
+              <div class="primary-prediction">
+                <h2 id="primaryGenre">Waiting for cover</h2>
+                <p id="confidence">Upload or pick a sample</p>
+              </div>
+              <div id="probabilityList" class="probability-list" aria-live="polite"></div>
+            </div>
+
+            <div class="metrics-grid" aria-label="Visual metrics">
+              <div class="metric-card">
+                <span>Brightness</span>
+                <strong id="metricBrightness">--</strong>
+              </div>
+              <div class="metric-card">
+                <span>Saturation</span>
+                <strong id="metricSaturation">--</strong>
+              </div>
+              <div class="metric-card">
+                <span>Contrast</span>
+                <strong id="metricContrast">--</strong>
+              </div>
+              <div class="metric-card">
+                <span>Edge density</span>
+                <strong id="metricEdges">--</strong>
+              </div>
+            </div>
+
+            <div class="explain-panel">
+              <p class="section-label">Evidence</p>
+              <ul id="evidenceList" class="evidence-list">
+                <li>Visual features will appear after analysis.</li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
