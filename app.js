@@ -25,6 +25,7 @@ const metricBrightness = document.querySelector("#metricBrightness");
 const metricSaturation = document.querySelector("#metricSaturation");
 const metricContrast = document.querySelector("#metricContrast");
 const metricEdges = document.querySelector("#metricEdges");
+const modelPill = document.querySelector(".model-pill");
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -269,10 +270,27 @@ function scoreGenres(features) {
     .sort((a, b) => b.probability - a.probability);
 }
 
-function featureEvidence(features, results) {
+function featureEvidence(features, results, modelInfo = {}) {
   const f = features;
   const evidence = [];
   const top = results[0].genre;
+
+  if (modelInfo.source === "trained") {
+    const top3 = results
+      .slice(0, 3)
+      .map((item) => `${item.genre} ${formatPercent(item.probability)}`)
+      .join(", ");
+    evidence.push(`Trained CLIP classifier top matches: ${top3}.`);
+    if (modelInfo.accuracyTop1 != null && modelInfo.accuracyTop3 != null) {
+      evidence.push(
+        `Full-dataset validation: ${formatPercent(modelInfo.accuracyTop1)} top-1, ${formatPercent(
+          modelInfo.accuracyTop3,
+        )} top-3.`,
+      );
+    }
+    evidence.push("Visual metrics remain shown for inspection, but the prediction comes from the trained backend.");
+    return evidence;
+  }
 
   if (f.darkRatio > 0.38) evidence.push("Large dark areas suggest heavier or moodier genres.");
   if (f.neonRatio > 0.16) evidence.push("Bright saturated colors point toward pop or electronic packaging.");
@@ -290,10 +308,15 @@ function formatPercent(value) {
   return `${Math.round(value * 100)}%`;
 }
 
-function renderResults(features, results) {
+function renderModelPill(text) {
+  modelPill.innerHTML = `<span class="status-dot"></span>${text}`;
+}
+
+function renderResults(features, results, modelInfo = {}) {
   const top = results[0];
   primaryGenre.textContent = top.genre;
   confidence.textContent = `${formatPercent(top.probability)} confidence`;
+  renderModelPill(modelInfo.source === "trained" ? "Trained CLIP model" : "Visual heuristic model");
 
   probabilityList.innerHTML = results
     .slice(0, 6)
@@ -315,15 +338,55 @@ function renderResults(features, results) {
   metricContrast.textContent = formatPercent(features.contrast);
   metricEdges.textContent = formatPercent(features.edgeDensity);
 
-  evidenceList.innerHTML = featureEvidence(features, results)
+  evidenceList.innerHTML = featureEvidence(features, results, modelInfo)
     .map((item) => `<li>${item}</li>`)
     .join("");
 }
 
-function runPrediction() {
+function canvasToBlob() {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+  });
+}
+
+async function predictWithBackend() {
+  const blob = await canvasToBlob();
+  if (!blob) throw new Error("Could not prepare image for backend prediction.");
+
+  const formData = new FormData();
+  formData.append("file", blob, "cover.jpg");
+
+  const response = await fetch("/api/predict", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend prediction failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  return {
+    results: payload.predictions,
+    modelInfo: {
+      source: "trained",
+      accuracyTop1: payload.accuracyTop1,
+      accuracyTop3: payload.accuracyTop3,
+    },
+  };
+}
+
+async function runPrediction() {
   const features = analyzeCanvas();
   const results = scoreGenres(features);
-  renderResults(features, results);
+  renderResults(features, results, { source: "heuristic" });
+
+  try {
+    const backendPrediction = await predictWithBackend();
+    renderResults(features, backendPrediction.results, backendPrediction.modelInfo);
+  } catch (error) {
+    renderModelPill("Visual heuristic model");
+  }
 }
 
 function loadFile(file) {
