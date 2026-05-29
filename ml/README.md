@@ -94,6 +94,14 @@ For a quick code-path check:
 uv run python ml/train_cnn.py --max-samples-per-label 25 --epochs 1 --image-size 96
 ```
 
+For a fuller CPU comparison with lightweight random hyperparameter search:
+
+```bash
+uv run python ml/train_cnn.py --trials 2 --trial-epochs 1 --epochs 3 --device cpu
+```
+
+The CNN trainer writes `reports/cnn_eval_examples.json` and `reports/cnn_failures.json` for the admin page.
+
 ## Predict One Cover
 
 ```bash

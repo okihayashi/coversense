@@ -63,6 +63,27 @@ button {
   padding: 6px 2px 0;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-link {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--coal);
+  color: var(--panel);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .eyebrow,
 .section-label {
   margin: 0 0 6px;
@@ -380,6 +401,182 @@ h1 {
   color: #3f392b;
 }
 
+.admin-shell {
+  width: min(1440px, 100%);
+}
+
+.admin-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.model-card {
+  min-height: 132px;
+  display: grid;
+  align-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.86);
+  color: var(--ink);
+  text-align: left;
+}
+
+.model-card.is-selected {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 0 1px var(--cyan);
+}
+
+.model-card-topline,
+.model-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 760;
+}
+
+.model-card-topline span:first-child {
+  color: var(--ink);
+}
+
+.model-card strong {
+  font-size: 2.6rem;
+  line-height: 1;
+}
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.42fr) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.admin-panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.admin-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.admin-panel h2 {
+  font-size: 1.45rem;
+  line-height: 1.05;
+}
+
+.toggle-button,
+.count-pill {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.metric-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.metric-list div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.metric-list dt {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 760;
+}
+
+.metric-list dd {
+  margin: 0;
+  font-weight: 850;
+  text-align: right;
+}
+
+.failure-panel {
+  min-height: 520px;
+}
+
+.failure-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.failure-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.failure-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: #e9e1d4;
+}
+
+.failure-card div {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.failure-labels {
+  display: grid;
+  gap: 3px;
+}
+
+.failure-labels strong {
+  font-size: 0.98rem;
+}
+
+.failure-labels span,
+.failure-card p,
+.empty-state {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.failure-card p {
+  margin: 0;
+}
+
+.empty-state {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
 @media (max-width: 940px) {
   .app-shell {
     padding: 18px;
@@ -390,11 +587,24 @@ h1 {
     flex-direction: column;
   }
 
+  .topbar-actions {
+    flex-wrap: wrap;
+  }
+
   .main-grid {
     grid-template-columns: 1fr;
   }
 
+  .admin-detail-grid,
+  .admin-model-grid {
+    grid-template-columns: 1fr;
+  }
+
   .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .failure-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -428,5 +638,9 @@ h1 {
   .probability-row {
     grid-template-columns: 92px 1fr 42px;
     gap: 9px;
+  }
+
+  .failure-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -36,6 +36,16 @@ class CnnConfig:
     dropout: float = 0.35
 
 
+@dataclass
+class TrainingSettings:
+    image_size: int
+    batch_size: int
+    learning_rate: float
+    weight_decay: float
+    dropout: float
+    base_channels: int
+
+
 class AlbumCoverDataset(Dataset):
     def __init__(
         self,
@@ -103,11 +113,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=160)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--dropout", type=float, default=0.35)
+    parser.add_argument("--base-channels", type=int, default=32)
     parser.add_argument("--test-size", type=float, default=0.2)
+    parser.add_argument("--validation-size", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--max-samples-per-label", type=int, default=None)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
+    parser.add_argument("--trials", type=int, default=1)
+    parser.add_argument("--trial-epochs", type=int, default=None)
     return parser.parse_args()
 
 
@@ -184,6 +199,60 @@ def topk_correct(logits: torch.Tensor, targets: torch.Tensor, k: int) -> int:
     return topk.eq(targets.view(-1, 1)).any(dim=1).sum().item()
 
 
+def channels_for(base_channels: int) -> tuple[int, ...]:
+    return (base_channels, base_channels * 2, base_channels * 4, base_channels * 8)
+
+
+def default_settings(args: argparse.Namespace) -> TrainingSettings:
+    return TrainingSettings(
+        image_size=args.image_size,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        dropout=args.dropout,
+        base_channels=args.base_channels,
+    )
+
+
+def sample_settings(args: argparse.Namespace, rng: random.Random) -> TrainingSettings:
+    if args.trials <= 1:
+        return default_settings(args)
+
+    image_size = rng.choice([96, 128, 160])
+    batch_size = rng.choice([32, 64])
+    base_channels = rng.choice([16, 24, 32])
+    learning_rate = 10 ** rng.uniform(-4.2, -3.0)
+    weight_decay = 10 ** rng.uniform(-5.0, -3.0)
+    dropout = rng.uniform(0.2, 0.5)
+    return TrainingSettings(
+        image_size=image_size,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        dropout=dropout,
+        base_channels=base_channels,
+    )
+
+
+def dataset_for_indices(
+    paths: list[Path],
+    targets: np.ndarray,
+    indices: np.ndarray,
+    image_size: int,
+    augment: bool,
+) -> AlbumCoverDataset:
+    return AlbumCoverDataset([paths[index] for index in indices], targets[indices], image_size, augment=augment)
+
+
+def loader_for_dataset(
+    dataset: AlbumCoverDataset,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int,
+) -> DataLoader:
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+
+
 def train_one_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -255,7 +324,107 @@ def evaluate(model: nn.Module, loader: DataLoader, criterion: nn.Module, device:
         ),
         "y_true": y_true,
         "y_pred": y_pred,
+        "probabilities": y_prob,
     }
+
+
+def train_candidate(
+    paths: list[Path],
+    y: np.ndarray,
+    train_idx: np.ndarray,
+    eval_idx: np.ndarray,
+    settings: TrainingSettings,
+    epochs: int,
+    num_classes: int,
+    device: torch.device,
+    args: argparse.Namespace,
+    desc: str,
+) -> dict[str, object]:
+    config = CnnConfig(
+        image_size=settings.image_size,
+        num_classes=num_classes,
+        channels=channels_for(settings.base_channels),
+        dropout=settings.dropout,
+    )
+    model = CoverCnn(config).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=settings.learning_rate,
+        weight_decay=settings.weight_decay,
+    )
+    train_loader = loader_for_dataset(
+        dataset_for_indices(paths, y, train_idx, settings.image_size, augment=True),
+        settings.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+    )
+    eval_loader = loader_for_dataset(
+        dataset_for_indices(paths, y, eval_idx, settings.image_size, augment=False),
+        settings.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+    )
+
+    best_state = None
+    best_metrics = None
+    best_top1 = -1.0
+    history = []
+    for epoch in range(1, epochs + 1):
+        train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        eval_metrics = evaluate(model, eval_loader, criterion, device)
+        epoch_metrics = {
+            "phase": desc,
+            "epoch": epoch,
+            "train": train_metrics,
+            "eval": {key: value for key, value in eval_metrics.items() if key not in {"y_true", "y_pred", "probabilities"}},
+        }
+        history.append(epoch_metrics)
+        print(json.dumps(epoch_metrics, indent=2))
+        if eval_metrics["accuracy_top_1"] > best_top1:
+            best_top1 = float(eval_metrics["accuracy_top_1"])
+            best_metrics = eval_metrics
+            best_state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
+
+    if best_state is None or best_metrics is None:
+        raise RuntimeError("Training did not produce a checkpoint")
+
+    model.load_state_dict(best_state)
+    final_metrics = evaluate(model, eval_loader, criterion, device)
+    return {
+        "config": config,
+        "settings": settings,
+        "state_dict": best_state,
+        "history": history,
+        "metrics": final_metrics,
+    }
+
+
+def evaluation_examples(
+    image_paths: list[Path],
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    labels: list[str],
+    top_k: int = 5,
+) -> list[dict]:
+    examples = []
+    for image_path, actual_index, row in zip(image_paths, y_true, probabilities):
+        ranked_indices = np.argsort(row)[::-1][:top_k]
+        predicted_index = int(ranked_indices[0])
+        examples.append(
+            {
+                "imagePath": image_path.as_posix(),
+                "actual": labels[int(actual_index)],
+                "predicted": labels[predicted_index],
+                "correct": predicted_index == int(actual_index),
+                "confidence": float(row[predicted_index]),
+                "topPredictions": [
+                    {"label": labels[int(index)], "probability": float(row[int(index)])}
+                    for index in ranked_indices
+                ],
+            }
+        )
+    return examples
 
 
 def main() -> None:
@@ -273,72 +442,117 @@ def main() -> None:
     label_encoder = LabelEncoder()
     y = label_encoder.fit_transform(labels)
     indices = np.arange(len(y))
-    train_idx, test_idx, y_train, y_test = train_test_split(
+    train_idx, test_idx, y_train_pool, _ = train_test_split(
         indices,
         y,
         test_size=args.test_size,
         random_state=args.seed,
         stratify=y,
     )
-
-    train_paths = [paths[index] for index in train_idx]
-    test_paths = [paths[index] for index in test_idx]
-    train_loader = DataLoader(
-        AlbumCoverDataset(train_paths, y_train, args.image_size, augment=True),
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-    )
-    test_loader = DataLoader(
-        AlbumCoverDataset(test_paths, y_test, args.image_size, augment=False),
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
+    validation_size = max(args.validation_size, len(label_encoder.classes_) / len(train_idx))
+    inner_train_idx, validation_idx, _, _ = train_test_split(
+        train_idx,
+        y_train_pool,
+        test_size=validation_size,
+        random_state=args.seed,
+        stratify=y_train_pool,
     )
 
     device = resolve_device(args.device)
-    config = CnnConfig(image_size=args.image_size, num_classes=len(label_encoder.classes_))
-    model = CoverCnn(config).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-
-    best_state = None
+    trial_epochs = args.trial_epochs or max(1, min(args.epochs, 3))
+    labels_out = label_encoder.classes_.tolist()
+    rng = random.Random(args.seed)
+    trials = []
+    best_trial = None
     best_top1 = -1.0
-    history = []
-    for epoch in range(1, args.epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device)
-        eval_metrics = evaluate(model, test_loader, criterion, device)
-        epoch_metrics = {
-            "epoch": epoch,
-            "train": train_metrics,
-            "test": {key: value for key, value in eval_metrics.items() if not key.startswith("y_")},
-        }
-        history.append(epoch_metrics)
-        print(json.dumps(epoch_metrics, indent=2))
-        if eval_metrics["accuracy_top_1"] > best_top1:
-            best_top1 = float(eval_metrics["accuracy_top_1"])
-            best_state = {key: value.detach().cpu() for key, value in model.state_dict().items()}
 
-    if best_state is None:
+    for trial in range(1, args.trials + 1):
+        settings = sample_settings(args, rng)
+        print(
+            json.dumps(
+                {
+                    "trial": trial,
+                    "phase": "tuning" if args.trials > 1 else "single",
+                    "epochs": trial_epochs,
+                    "settings": asdict(settings),
+                },
+                indent=2,
+            )
+        )
+        result = train_candidate(
+            paths=paths,
+            y=y,
+            train_idx=inner_train_idx if args.trials > 1 else train_idx,
+            eval_idx=validation_idx if args.trials > 1 else test_idx,
+            settings=settings,
+            epochs=trial_epochs if args.trials > 1 else args.epochs,
+            num_classes=len(labels_out),
+            device=device,
+            args=args,
+            desc=f"trial-{trial}",
+        )
+        trial_summary = {
+            "trial": trial,
+            "settings": asdict(settings),
+            "validation_accuracy_top_1": result["metrics"]["accuracy_top_1"],
+            "validation_accuracy_top_3": result["metrics"]["accuracy_top_3"],
+            "validation_loss": result["metrics"]["loss"],
+        }
+        trials.append(trial_summary)
+        if result["metrics"]["accuracy_top_1"] > best_top1:
+            best_top1 = float(result["metrics"]["accuracy_top_1"])
+            best_trial = result
+
+    if best_trial is None:
         raise RuntimeError("Training did not produce a checkpoint")
 
-    model.load_state_dict(best_state)
-    final_metrics = evaluate(model, test_loader, criterion, device)
+    if args.trials > 1:
+        best_settings = best_trial["settings"]
+        print(json.dumps({"phase": "final", "epochs": args.epochs, "settings": asdict(best_settings)}, indent=2))
+        final_result = train_candidate(
+            paths=paths,
+            y=y,
+            train_idx=train_idx,
+            eval_idx=test_idx,
+            settings=best_settings,
+            epochs=args.epochs,
+            num_classes=len(labels_out),
+            device=device,
+            args=args,
+            desc="final",
+        )
+    else:
+        final_result = best_trial
+
+    config = final_result["config"]
+    best_state = final_result["state_dict"]
+    final_metrics = final_result["metrics"]
+    best_settings = final_result["settings"]
     labels_out = label_encoder.classes_.tolist()
     metrics = {
         "model": "small-cnn",
+        "tuning": {
+            "trials": args.trials,
+            "trial_epochs": trial_epochs,
+            "validation_size": validation_size,
+            "trial_results": trials,
+            "best_settings": asdict(best_settings),
+        },
         "train_size": int(len(train_idx)),
         "test_size": int(len(test_idx)),
-        "image_size": args.image_size,
+        "validation_size": int(len(validation_idx)) if args.trials > 1 else 0,
+        "image_size": best_settings.image_size,
         "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "learning_rate": args.learning_rate,
-        "weight_decay": args.weight_decay,
+        "batch_size": best_settings.batch_size,
+        "learning_rate": best_settings.learning_rate,
+        "weight_decay": best_settings.weight_decay,
+        "dropout": best_settings.dropout,
+        "base_channels": best_settings.base_channels,
         "device": device.type,
         "accuracy_top_1": final_metrics["accuracy_top_1"],
         "accuracy_top_3": final_metrics["accuracy_top_3"],
         "labels": labels_out,
-        "history": history,
+        "history": final_result["history"],
     }
 
     model_path = args.model_dir / "coversense_cnn.pt"
@@ -363,6 +577,15 @@ def main() -> None:
         labels_out,
         confusion_matrix(final_metrics["y_true"], final_metrics["y_pred"]),
     )
+    examples = evaluation_examples(
+        [paths[index] for index in test_idx],
+        final_metrics["y_true"],
+        final_metrics["probabilities"],
+        labels_out,
+    )
+    failures = [example for example in examples if not example["correct"]]
+    (args.report_dir / "cnn_eval_examples.json").write_text(json.dumps(examples, indent=2), encoding="utf-8")
+    (args.report_dir / "cnn_failures.json").write_text(json.dumps(failures, indent=2), encoding="utf-8")
 
     print(json.dumps({key: value for key, value in metrics.items() if key != "history"}, indent=2))
     print(f"Saved model: {model_path}")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import joblib
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from transformers import CLIPModel, CLIPProcessor
@@ -19,6 +19,12 @@ from transformers import CLIPModel, CLIPProcessor
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "models" / "coversense_clip_classifier.joblib"
 METRICS_PATH = ROOT / "reports" / "metrics.json"
+FAILURES_PATH = ROOT / "reports" / "failures.json"
+EXAMPLES_PATH = ROOT / "reports" / "eval_examples.json"
+CNN_MODEL_PATH = ROOT / "models" / "coversense_cnn.pt"
+CNN_METRICS_PATH = ROOT / "reports" / "cnn_metrics.json"
+CNN_FAILURES_PATH = ROOT / "reports" / "cnn_failures.json"
+CNN_EXAMPLES_PATH = ROOT / "reports" / "cnn_eval_examples.json"
 DISPLAY_LABELS = {
     "blues": "Blues",
     "classical": "Classical",
@@ -89,9 +95,13 @@ def load_predictor():
 
 
 def read_metrics() -> dict:
-    if not METRICS_PATH.exists():
-        return {}
-    return json.loads(METRICS_PATH.read_text(encoding="utf-8"))
+    return read_json(METRICS_PATH, {})
+
+
+def read_json(path: Path, default):
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def classifier_name(payload: dict, metrics: dict | None = None) -> str:
@@ -100,6 +110,62 @@ def classifier_name(payload: dict, metrics: dict | None = None) -> str:
     if metrics and metrics.get("classifier"):
         return metrics["classifier"]
     return "logreg"
+
+
+def display_label(label: str) -> str:
+    return DISPLAY_LABELS.get(label, label.replace("-", " ").title())
+
+
+def public_artwork_url(image_path: str) -> str:
+    parts = [part for part in Path(image_path).parts if part not in {"", "."}]
+    return "/api/artwork/" + "/".join(parts)
+
+
+def normalize_examples(examples: list[dict], limit: int | None = None) -> list[dict]:
+    normalized = []
+    for example in examples[:limit]:
+        item = dict(example)
+        item["actualDisplay"] = display_label(item.get("actual", ""))
+        item["predictedDisplay"] = display_label(item.get("predicted", ""))
+        item["imageUrl"] = public_artwork_url(item.get("imagePath", ""))
+        item["topPredictions"] = [
+            {
+                **prediction,
+                "display": display_label(prediction.get("label", "")),
+            }
+            for prediction in item.get("topPredictions", [])
+        ]
+        normalized.append(item)
+    return normalized
+
+
+def model_summary(
+    model_id: str,
+    name: str,
+    family: str,
+    artifact_path: Path,
+    metrics_path: Path,
+    examples_path: Path,
+    failures_path: Path,
+) -> dict:
+    metrics = read_json(metrics_path, {})
+    examples = read_json(examples_path, [])
+    failures = read_json(failures_path, [])
+    return {
+        "id": model_id,
+        "name": name,
+        "family": family,
+        "artifactAvailable": artifact_path.exists(),
+        "artifactPath": str(artifact_path),
+        "metricsPath": str(metrics_path),
+        "examplesAvailable": examples_path.exists(),
+        "failuresAvailable": failures_path.exists(),
+        "metrics": metrics,
+        "evaluationCount": len(examples),
+        "failureCount": len(failures),
+        "failureRate": (len(failures) / len(examples)) if examples else None,
+        "failurePreview": normalize_examples(failures, limit=12),
+    }
 
 
 def image_from_upload(raw_bytes: bytes) -> Image.Image:
@@ -153,9 +219,19 @@ def index():
     return FileResponse(ROOT / "index.html", headers=NO_CACHE_HEADERS)
 
 
+@app.get("/admin")
+def admin():
+    return FileResponse(ROOT / "admin.html", headers=NO_CACHE_HEADERS)
+
+
 @app.get("/app.js")
 def app_js():
     return FileResponse(ROOT / "app.js", media_type="application/javascript", headers=NO_CACHE_HEADERS)
+
+
+@app.get("/admin.js")
+def admin_js():
+    return FileResponse(ROOT / "admin.js", media_type="application/javascript", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/styles.css")
@@ -178,6 +254,68 @@ def health():
             "clipModel": metrics.get("clip_model"),
         },
     }
+
+
+@app.get("/api/models")
+def models():
+    return {
+        "models": [
+            model_summary(
+                model_id="clip-classifier",
+                name=f"CLIP + {classifier_name({}, read_metrics()).upper()}",
+                family="embedding-classifier",
+                artifact_path=MODEL_PATH,
+                metrics_path=METRICS_PATH,
+                examples_path=EXAMPLES_PATH,
+                failures_path=FAILURES_PATH,
+            ),
+            model_summary(
+                model_id="small-cnn",
+                name="Small CNN",
+                family="raw-pixel-cnn",
+                artifact_path=CNN_MODEL_PATH,
+                metrics_path=CNN_METRICS_PATH,
+                examples_path=CNN_EXAMPLES_PATH,
+                failures_path=CNN_FAILURES_PATH,
+            ),
+        ]
+    }
+
+
+@app.get("/api/models/{model_id}/examples")
+def model_examples(
+    model_id: str,
+    failed_only: bool = Query(default=True, alias="failedOnly"),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
+    paths = {
+        "clip-classifier": (EXAMPLES_PATH, FAILURES_PATH),
+        "small-cnn": (CNN_EXAMPLES_PATH, CNN_FAILURES_PATH),
+    }
+    if model_id not in paths:
+        raise HTTPException(status_code=404, detail="Unknown model.")
+
+    examples_path, failures_path = paths[model_id]
+    source_path = failures_path if failed_only else examples_path
+    examples = read_json(source_path, [])
+    window = examples[offset : offset + limit]
+    return {
+        "modelId": model_id,
+        "failedOnly": failed_only,
+        "offset": offset,
+        "limit": limit,
+        "total": len(examples),
+        "examples": normalize_examples(window),
+    }
+
+
+@app.get("/api/artwork/{image_path:path}")
+def artwork(image_path: str):
+    candidate = (ROOT / image_path).resolve()
+    if ROOT not in candidate.parents or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Artwork not found.")
+    return FileResponse(candidate)
 
 
 @app.post("/api/predict")

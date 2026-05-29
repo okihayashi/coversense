@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CoverSense Admin</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell admin-shell">
+      <section class="workspace" aria-label="CoverSense model observability">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">CoverSense Admin</p>
+            <h1>Model observability</h1>
+          </div>
+          <div class="topbar-actions">
+            <a class="admin-link" href="/">Predict</a>
+            <div class="model-pill">
+              <span class="status-dot"></span>
+              Evaluation reports
+            </div>
+          </div>
+        </header>
+
+        <section id="modelGrid" class="admin-model-grid" aria-label="Model list"></section>
+
+        <section class="admin-detail-grid">
+          <div class="admin-panel">
+            <div class="admin-panel-header">
+              <div>
+                <p class="section-label">Selected Model</p>
+                <h2 id="selectedModelName">Loading</h2>
+              </div>
+              <button id="showAllToggle" class="toggle-button" type="button" aria-pressed="false">Failures</button>
+            </div>
+            <dl id="metricList" class="metric-list"></dl>
+          </div>
+
+          <div class="admin-panel failure-panel">
+            <div class="admin-panel-header">
+              <div>
+                <p class="section-label">Error Analysis</p>
+                <h2 id="failureTitle">Failed artwork</h2>
+              </div>
+              <span id="failureCount" class="count-pill">0</span>
+            </div>
+            <div id="failureGrid" class="failure-grid" aria-live="polite"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="admin.js?v=20260529-admin"></script>
+  </body>
+</html>

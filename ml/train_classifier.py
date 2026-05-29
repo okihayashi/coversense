@@ -108,6 +108,33 @@ def write_confusion_matrix(path: Path, labels: list[str], matrix: np.ndarray) ->
             writer.writerow([label, *row.tolist()])
 
 
+def evaluation_examples(
+    image_paths: np.ndarray,
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    labels: list[str],
+    top_k: int = 5,
+) -> list[dict]:
+    examples = []
+    for image_path, actual_index, row in zip(image_paths, y_true, probabilities):
+        ranked_indices = np.argsort(row)[::-1][:top_k]
+        predicted_index = int(ranked_indices[0])
+        examples.append(
+            {
+                "imagePath": str(image_path),
+                "actual": labels[int(actual_index)],
+                "predicted": labels[predicted_index],
+                "correct": predicted_index == int(actual_index),
+                "confidence": float(row[predicted_index]),
+                "topPredictions": [
+                    {"label": labels[int(index)], "probability": float(row[int(index)])}
+                    for index in ranked_indices
+                ],
+            }
+        )
+    return examples
+
+
 def main() -> None:
     args = parse_args()
     args.model_dir.mkdir(parents=True, exist_ok=True)
@@ -163,6 +190,10 @@ def main() -> None:
         encoding="utf-8",
     )
     write_confusion_matrix(args.report_dir / "confusion_matrix.csv", labels_out, confusion_matrix(y_test, predictions))
+    examples = evaluation_examples(image_paths[test_idx], y_test, probabilities, labels_out)
+    failures = [example for example in examples if not example["correct"]]
+    (args.report_dir / "eval_examples.json").write_text(json.dumps(examples, indent=2), encoding="utf-8")
+    (args.report_dir / "failures.json").write_text(json.dumps(failures, indent=2), encoding="utf-8")
     np.savez_compressed(
         args.report_dir / "split_indices.npz",
         train_idx=train_idx,

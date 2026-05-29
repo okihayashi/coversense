@@ -15,6 +15,8 @@ uv run uvicorn backend.server:app --reload --host 127.0.0.1 --port 8000
 
 Then open `http://127.0.0.1:8000`.
 
+Model observability is available at `http://127.0.0.1:8000/admin`. It lists model artifacts, evaluation metrics, tuning details, and failed artwork examples for error analysis.
+
 If `models/coversense_clip_classifier.joblib` is missing, train first with:
 
 ```bash
@@ -57,6 +59,12 @@ Try a raw-pixel CNN baseline:
 ```bash
 uv run python ml/train_cnn.py --epochs 8
 uv run python ml/predict_cnn.py path/to/cover.jpg
+```
+
+Run a fuller CNN comparison with lightweight random hyperparameter search:
+
+```bash
+uv run python ml/train_cnn.py --trials 2 --trial-epochs 1 --epochs 3 --device cpu
 ```
 
 For a fast smoke test, train on a small balanced subset:
