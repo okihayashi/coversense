@@ -18,12 +18,10 @@ The `ml/` folder adds the first real-model path:
 Start here:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-ml.txt
-python ml/download_hf_album_covers.py --max-per-label 50
-python ml/train_clip_classifier.py
-python ml/predict_cover.py path/to/cover.jpg
+uv sync
+uv run python ml/download_hf_album_covers.py --max-per-label 50
+uv run python ml/train_clip_classifier.py
+uv run python ml/predict_cover.py path/to/cover.jpg
 ```
 
 Remove `--max-per-label 50` when you are ready to train on the full dataset.

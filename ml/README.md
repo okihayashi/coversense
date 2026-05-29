@@ -15,15 +15,13 @@ The default dataset is `eong/20k-Album-Covers-within-20-Genres`, which has 20 ge
 
 ```bash
 cd /Users/okihayas/Documents/Codex/2026-05-28/coversense
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-ml.txt
+uv sync
 ```
 
 ## Download Dataset
 
 ```bash
-python ml/download_hf_album_covers.py
+uv run python ml/download_hf_album_covers.py
 ```
 
 This creates:
@@ -37,13 +35,13 @@ data/album_covers_20_genres/labels.json
 Use `--max-per-label` for a quick smoke test:
 
 ```bash
-python ml/download_hf_album_covers.py --max-per-label 50
+uv run python ml/download_hf_album_covers.py --max-per-label 50
 ```
 
 ## Train Classifier
 
 ```bash
-python ml/train_clip_classifier.py
+uv run python ml/train_clip_classifier.py
 ```
 
 This creates:
@@ -59,7 +57,7 @@ reports/confusion_matrix.csv
 ## Predict One Cover
 
 ```bash
-python ml/predict_cover.py path/to/cover.jpg
+uv run python ml/predict_cover.py path/to/cover.jpg
 ```
 
 ## Notes
