@@ -26,6 +26,7 @@ const metricSaturation = document.querySelector("#metricSaturation");
 const metricContrast = document.querySelector("#metricContrast");
 const metricEdges = document.querySelector("#metricEdges");
 const modelPill = document.querySelector(".model-pill");
+let backendReady = false;
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -312,6 +313,22 @@ function renderModelPill(text) {
   modelPill.innerHTML = `<span class="status-dot"></span>${text}`;
 }
 
+async function refreshBackendStatus() {
+  renderModelPill("Checking model");
+
+  try {
+    const response = await fetch("/api/health");
+    if (!response.ok) throw new Error(`Health check failed: ${response.status}`);
+
+    const payload = await response.json();
+    backendReady = Boolean(payload.modelAvailable);
+    renderModelPill(backendReady ? "Trained model ready" : "Visual heuristic model");
+  } catch (error) {
+    backendReady = false;
+    renderModelPill("Visual heuristic model");
+  }
+}
+
 function renderResults(features, results, modelInfo = {}) {
   const top = results[0];
   primaryGenre.textContent = top.genre;
@@ -380,6 +397,7 @@ async function runPrediction() {
   const features = analyzeCanvas();
   const results = scoreGenres(features);
   renderResults(features, results, { source: "heuristic" });
+  if (backendReady) renderModelPill("Trained model ready");
 
   try {
     const backendPrediction = await predictWithBackend();
@@ -504,3 +522,4 @@ document.querySelectorAll("[data-sample]").forEach((button) => {
 });
 
 resetCanvas();
+refreshBackendStatus();
