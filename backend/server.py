@@ -43,6 +43,10 @@ DISPLAY_LABELS = {
 }
 
 app = FastAPI(title="CoverSense", version="0.1.0")
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, max-age=0",
+    "Pragma": "no-cache",
+}
 
 
 def choose_device() -> torch.device:
@@ -146,17 +150,17 @@ def predict_image(image: Image.Image, top_k: int = 6) -> list[dict]:
 
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "index.html")
+    return FileResponse(ROOT / "index.html", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/app.js")
 def app_js():
-    return FileResponse(ROOT / "app.js", media_type="application/javascript")
+    return FileResponse(ROOT / "app.js", media_type="application/javascript", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/styles.css")
 def styles_css():
-    return FileResponse(ROOT / "styles.css", media_type="text/css")
+    return FileResponse(ROOT / "styles.css", media_type="text/css", headers=NO_CACHE_HEADERS)
 
 
 @app.get("/api/health")
