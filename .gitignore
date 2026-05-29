@@ -1,2 +1,8 @@
 coversense-screenshot.png
 .DS_Store
+.venv/
+data/
+models/
+reports/
+*.joblib
+__pycache__/

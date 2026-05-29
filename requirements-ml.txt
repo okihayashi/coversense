@@ -1,0 +1,8 @@
+datasets>=2.19.0
+joblib>=1.4.0
+numpy>=1.26.0
+pillow>=10.3.0
+scikit-learn>=1.4.0
+torch>=2.2.0
+tqdm>=4.66.0
+transformers>=4.41.0
