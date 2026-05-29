@@ -43,7 +43,11 @@
                 <p class="section-label">Error Analysis</p>
                 <h2 id="failureTitle">Failed artwork</h2>
               </div>
-              <span id="failureCount" class="count-pill">0</span>
+              <div class="pagination-actions">
+                <button id="prevPage" class="icon-page-button" type="button" aria-label="Previous page">&lt;</button>
+                <span id="pageStatus" class="count-pill">0</span>
+                <button id="nextPage" class="icon-page-button" type="button" aria-label="Next page">&gt;</button>
+              </div>
             </div>
             <div id="failureGrid" class="failure-grid" aria-live="polite"></div>
           </div>
@@ -51,6 +55,6 @@
       </section>
     </main>
 
-    <script src="admin.js?v=20260529-admin"></script>
+    <script src="admin.js?v=20260529-admin-pagination"></script>
   </body>
 </html>

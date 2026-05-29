@@ -3,12 +3,16 @@ const selectedModelName = document.querySelector("#selectedModelName");
 const metricList = document.querySelector("#metricList");
 const failureGrid = document.querySelector("#failureGrid");
 const failureTitle = document.querySelector("#failureTitle");
-const failureCount = document.querySelector("#failureCount");
+const pageStatus = document.querySelector("#pageStatus");
 const showAllToggle = document.querySelector("#showAllToggle");
+const prevPage = document.querySelector("#prevPage");
+const nextPage = document.querySelector("#nextPage");
 
 let models = [];
 let selectedModelId = null;
 let failedOnly = true;
+let exampleOffset = 0;
+const pageSize = 18;
 
 function formatPercent(value) {
   if (value == null) return "--";
@@ -21,6 +25,7 @@ function formatNumber(value) {
 }
 
 function modelStatus(model) {
+  if (model.serving) return "Serving";
   if (!model.artifactAvailable) return "Missing artifact";
   if (!model.examplesAvailable) return "No evaluation examples";
   return "Ready";
@@ -56,6 +61,7 @@ function metricRows(model) {
   const tuning = metrics.tuning || {};
   const rows = [
     ["Family", model.family],
+    ["Status", modelStatus(model)],
     ["Artifact", model.artifactAvailable ? "Available" : "Missing"],
     ["Top-1 Accuracy", formatPercent(metrics.accuracy_top_1)],
     ["Top-3 Accuracy", formatPercent(metrics.accuracy_top_3)],
@@ -94,7 +100,17 @@ function predictionText(example) {
 
 function renderExamples(payload) {
   failureTitle.textContent = failedOnly ? "Failed artwork" : "Evaluation artwork";
-  failureCount.textContent = formatNumber(payload.total);
+  const currentPage = payload.total === 0 ? 0 : Math.floor(payload.offset / payload.limit) + 1;
+  const totalPages = Math.ceil(payload.total / payload.limit);
+  pageStatus.textContent =
+    payload.total === 0
+      ? "0"
+      : `${formatNumber(payload.offset + 1)}-${formatNumber(
+          Math.min(payload.offset + payload.examples.length, payload.total),
+        )} of ${formatNumber(payload.total)}`;
+  pageStatus.setAttribute("title", `Page ${currentPage} of ${totalPages}`);
+  prevPage.disabled = payload.offset === 0;
+  nextPage.disabled = payload.offset + payload.limit >= payload.total;
 
   if (!payload.examples.length) {
     failureGrid.innerHTML = `<p class="empty-state">No examples available for this model yet.</p>`;
@@ -120,13 +136,19 @@ function renderExamples(payload) {
 }
 
 async function loadExamples() {
-  const response = await fetch(`/api/models/${selectedModelId}/examples?failedOnly=${failedOnly}&limit=120`);
+  const params = new URLSearchParams({
+    failedOnly: String(failedOnly),
+    limit: String(pageSize),
+    offset: String(exampleOffset),
+  });
+  const response = await fetch(`/api/models/${selectedModelId}/examples?${params}`);
   if (!response.ok) throw new Error(`Example request failed: ${response.status}`);
   renderExamples(await response.json());
 }
 
 async function selectModel(modelId) {
   selectedModelId = modelId;
+  exampleOffset = 0;
   renderModelCards();
   const model = models.find((item) => item.id === selectedModelId);
   if (!model) return;
@@ -146,8 +168,19 @@ async function loadModels() {
 
 showAllToggle.addEventListener("click", async () => {
   failedOnly = !failedOnly;
+  exampleOffset = 0;
   showAllToggle.textContent = failedOnly ? "Failures" : "All";
   showAllToggle.setAttribute("aria-pressed", String(!failedOnly));
+  await loadExamples();
+});
+
+prevPage.addEventListener("click", async () => {
+  exampleOffset = Math.max(0, exampleOffset - pageSize);
+  await loadExamples();
+});
+
+nextPage.addEventListener("click", async () => {
+  exampleOffset += pageSize;
   await loadExamples();
 });
 

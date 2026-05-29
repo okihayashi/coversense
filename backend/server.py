@@ -25,6 +25,14 @@ CNN_MODEL_PATH = ROOT / "models" / "coversense_cnn.pt"
 CNN_METRICS_PATH = ROOT / "reports" / "cnn_metrics.json"
 CNN_FAILURES_PATH = ROOT / "reports" / "cnn_failures.json"
 CNN_EXAMPLES_PATH = ROOT / "reports" / "cnn_eval_examples.json"
+MODEL_RUNS_DIR = ROOT / "reports" / "model_runs"
+MODEL_RUN_ARTIFACTS_DIR = ROOT / "models" / "model_runs"
+CLIP_CLASSIFIER_RUNS = [
+    ("clip-logreg", "CLIP + Logistic Regression", "logreg"),
+    ("clip-linear-svc", "CLIP + Linear SVC", "linear-svc"),
+    ("clip-random-forest", "CLIP + Random Forest", "random-forest"),
+    ("clip-mlp", "CLIP + MLP", "mlp"),
+]
 DISPLAY_LABELS = {
     "blues": "Blues",
     "classical": "Classical",
@@ -168,6 +176,69 @@ def model_summary(
     }
 
 
+def model_paths_for(model_id: str) -> tuple[Path, Path, Path, Path] | None:
+    if model_id == "clip-classifier":
+        return MODEL_PATH, METRICS_PATH, EXAMPLES_PATH, FAILURES_PATH
+    if model_id == "small-cnn":
+        return CNN_MODEL_PATH, CNN_METRICS_PATH, CNN_EXAMPLES_PATH, CNN_FAILURES_PATH
+    known_run_ids = {run_id for run_id, _, _ in CLIP_CLASSIFIER_RUNS}
+    if model_id in known_run_ids:
+        run_dir = MODEL_RUNS_DIR / model_id
+        artifact_path = MODEL_RUN_ARTIFACTS_DIR / model_id / "coversense_clip_classifier.joblib"
+        return artifact_path, run_dir / "metrics.json", run_dir / "eval_examples.json", run_dir / "failures.json"
+    return None
+
+
+def comparison_model_summaries() -> list[dict]:
+    summaries = []
+    active_classifier = classifier_name({}, read_metrics())
+    active_run_id = f"clip-{active_classifier}"
+    active_run_found = False
+
+    for model_id, name, classifier in CLIP_CLASSIFIER_RUNS:
+        artifact_path, metrics_path, examples_path, failures_path = model_paths_for(model_id)
+        is_serving = model_id == active_run_id
+        active_run_found = active_run_found or is_serving
+        summary = model_summary(
+            model_id=model_id,
+            name=f"Serving {name}" if is_serving else name,
+            family="embedding-classifier",
+            artifact_path=artifact_path,
+            metrics_path=metrics_path,
+            examples_path=examples_path,
+            failures_path=failures_path,
+        )
+        summary["metrics"] = {"classifier": classifier, **summary["metrics"]}
+        summary["serving"] = is_serving
+        summaries.append(summary)
+
+    if not active_run_found:
+        active_summary = model_summary(
+            model_id="clip-classifier",
+            name=f"Serving CLIP + {active_classifier.upper()}",
+            family="embedding-classifier",
+            artifact_path=MODEL_PATH,
+            metrics_path=METRICS_PATH,
+            examples_path=EXAMPLES_PATH,
+            failures_path=FAILURES_PATH,
+        )
+        active_summary["serving"] = True
+        summaries.insert(0, active_summary)
+
+    summaries.append(
+        model_summary(
+            model_id="small-cnn",
+            name="Small CNN",
+            family="raw-pixel-cnn",
+            artifact_path=CNN_MODEL_PATH,
+            metrics_path=CNN_METRICS_PATH,
+            examples_path=CNN_EXAMPLES_PATH,
+            failures_path=CNN_FAILURES_PATH,
+        )
+    )
+    return summaries
+
+
 def image_from_upload(raw_bytes: bytes) -> Image.Image:
     try:
         return Image.open(BytesIO(raw_bytes)).convert("RGB")
@@ -258,28 +329,7 @@ def health():
 
 @app.get("/api/models")
 def models():
-    return {
-        "models": [
-            model_summary(
-                model_id="clip-classifier",
-                name=f"CLIP + {classifier_name({}, read_metrics()).upper()}",
-                family="embedding-classifier",
-                artifact_path=MODEL_PATH,
-                metrics_path=METRICS_PATH,
-                examples_path=EXAMPLES_PATH,
-                failures_path=FAILURES_PATH,
-            ),
-            model_summary(
-                model_id="small-cnn",
-                name="Small CNN",
-                family="raw-pixel-cnn",
-                artifact_path=CNN_MODEL_PATH,
-                metrics_path=CNN_METRICS_PATH,
-                examples_path=CNN_EXAMPLES_PATH,
-                failures_path=CNN_FAILURES_PATH,
-            ),
-        ]
-    }
+    return {"models": comparison_model_summaries()}
 
 
 @app.get("/api/models/{model_id}/examples")
@@ -289,14 +339,11 @@ def model_examples(
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ):
-    paths = {
-        "clip-classifier": (EXAMPLES_PATH, FAILURES_PATH),
-        "small-cnn": (CNN_EXAMPLES_PATH, CNN_FAILURES_PATH),
-    }
-    if model_id not in paths:
+    paths = model_paths_for(model_id)
+    if paths is None:
         raise HTTPException(status_code=404, detail="Unknown model.")
 
-    examples_path, failures_path = paths[model_id]
+    _, _, examples_path, failures_path = paths
     source_path = failures_path if failed_only else examples_path
     examples = read_json(source_path, [])
     window = examples[offset : offset + limit]
