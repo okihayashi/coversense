@@ -68,6 +68,18 @@ def load_images(paths: list[Path]) -> list[Image.Image]:
     return images
 
 
+def tensor_from_clip_output(output):
+    if isinstance(output, torch.Tensor):
+        return output
+    if hasattr(output, "image_embeds"):
+        return output.image_embeds
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output
+    if isinstance(output, (tuple, list)):
+        return output[0]
+    raise TypeError(f"Unsupported CLIP output type: {type(output)!r}")
+
+
 @torch.inference_mode()
 def encode_images(
     paths: list[Path],
@@ -83,6 +95,7 @@ def encode_images(
         inputs = processor(images=images, return_tensors="pt", padding=True)
         inputs = {key: value.to(device) for key, value in inputs.items()}
         image_features = model.get_image_features(**inputs)
+        image_features = tensor_from_clip_output(image_features)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         embeddings.append(image_features.cpu().numpy())
     return np.vstack(embeddings)

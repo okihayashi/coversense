@@ -31,6 +31,18 @@ def choose_device() -> torch.device:
     return torch.device("cpu")
 
 
+def tensor_from_clip_output(output):
+    if isinstance(output, torch.Tensor):
+        return output
+    if hasattr(output, "image_embeds"):
+        return output.image_embeds
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output
+    if isinstance(output, (tuple, list)):
+        return output[0]
+    raise TypeError(f"Unsupported CLIP output type: {type(output)!r}")
+
+
 @torch.inference_mode()
 def main() -> None:
     args = parse_args()
@@ -46,6 +58,7 @@ def main() -> None:
 
     inputs = {key: value.to(device) for key, value in inputs.items()}
     features = clip_model.get_image_features(**inputs)
+    features = tensor_from_clip_output(features)
     features = features / features.norm(dim=-1, keepdim=True)
     features = payload["scaler"].transform(features.cpu().numpy())
 
