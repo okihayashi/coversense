@@ -71,10 +71,34 @@ reports/classification_report.txt
 reports/confusion_matrix.csv
 ```
 
+## Train CNN Baseline
+
+The CNN path learns directly from resized album-cover pixels instead of using CLIP embeddings:
+
+```bash
+uv run python ml/train_cnn.py --epochs 8
+```
+
+This creates:
+
+```text
+models/coversense_cnn.pt
+reports/cnn_metrics.json
+reports/cnn_classification_report.txt
+reports/cnn_confusion_matrix.csv
+```
+
+For a quick code-path check:
+
+```bash
+uv run python ml/train_cnn.py --max-samples-per-label 25 --epochs 1 --image-size 96
+```
+
 ## Predict One Cover
 
 ```bash
 uv run python ml/predict_cover.py path/to/cover.jpg
+uv run python ml/predict_cnn.py path/to/cover.jpg
 ```
 
 ## Notes

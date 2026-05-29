@@ -51,3 +51,16 @@ uv run python ml/train_classifier.py --classifier linear-svc
 uv run python ml/train_classifier.py --classifier random-forest
 uv run python ml/train_classifier.py --classifier mlp
 ```
+
+Try a raw-pixel CNN baseline:
+
+```bash
+uv run python ml/train_cnn.py --epochs 8
+uv run python ml/predict_cnn.py path/to/cover.jpg
+```
+
+For a fast smoke test, train on a small balanced subset:
+
+```bash
+uv run python ml/train_cnn.py --max-samples-per-label 25 --epochs 1 --image-size 96
+```
