@@ -304,16 +304,27 @@ h1 {
 .primary-prediction {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 16px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.primary-prediction > div {
+  min-width: 0;
 }
 
 .primary-prediction h2 {
   font-size: clamp(1.7rem, 4vw, 3rem);
   line-height: 1;
   letter-spacing: 0;
+}
+
+.broad-genre {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 760;
 }
 
 #confidence {
@@ -330,14 +341,33 @@ h1 {
 
 .probability-row {
   display: grid;
-  grid-template-columns: 118px 1fr 48px;
+  grid-template-columns: minmax(132px, 0.42fr) 1fr 48px;
   align-items: center;
   gap: 12px;
 }
 
-.probability-row span {
-  color: var(--muted);
+.probability-label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.probability-label strong,
+.probability-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.probability-label strong {
+  color: var(--ink);
   font-size: 0.9rem;
+  font-weight: 780;
+}
+
+.probability-label small {
+  color: var(--muted);
+  font-size: 0.76rem;
   font-weight: 760;
 }
 

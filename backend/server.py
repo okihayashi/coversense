@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from transformers import CLIPModel, CLIPProcessor
 
+from ml.genre_taxonomy import broad_genre
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "models" / "coversense_clip_classifier.joblib"
@@ -54,6 +56,16 @@ DISPLAY_LABELS = {
     "rock": "Rock",
     "soul": "Soul",
     "techno": "Techno",
+}
+BROAD_DISPLAY_LABELS = {
+    "classical": "Classical",
+    "electronic": "Electronic",
+    "hiphop": "Hip-Hop",
+    "jazz": "Jazz",
+    "metal": "Metal",
+    "pop-soul": "Pop / Soul",
+    "rock": "Rock",
+    "roots": "Roots",
 }
 
 app = FastAPI(title="CoverSense", version="0.1.0")
@@ -122,6 +134,11 @@ def classifier_name(payload: dict, metrics: dict | None = None) -> str:
 
 def display_label(label: str) -> str:
     return DISPLAY_LABELS.get(label, label.replace("-", " ").title())
+
+
+def display_broad_label(label: str) -> str:
+    broad = broad_genre(label)
+    return BROAD_DISPLAY_LABELS.get(broad, display_label(broad))
 
 
 def public_artwork_url(image_path: str) -> str:
@@ -278,6 +295,8 @@ def predict_image(image: Image.Image, top_k: int = 6) -> list[dict]:
     return [
         {
             "label": label,
+            "broadGenre": broad_genre(label),
+            "broadGenreDisplay": display_broad_label(label),
             "genre": DISPLAY_LABELS.get(label, label.replace("-", " ").title()),
             "probability": float(probability),
         }

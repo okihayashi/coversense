@@ -17,6 +17,7 @@ const canvas = document.querySelector("#previewCanvas");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
 const primaryGenre = document.querySelector("#primaryGenre");
+const primaryBroadGenre = document.querySelector("#primaryBroadGenre");
 const confidence = document.querySelector("#confidence");
 const probabilityList = document.querySelector("#probabilityList");
 const evidenceList = document.querySelector("#evidenceList");
@@ -27,6 +28,19 @@ const metricContrast = document.querySelector("#metricContrast");
 const metricEdges = document.querySelector("#metricEdges");
 const modelPill = document.querySelector(".model-pill");
 let backendReady = false;
+
+const broadGenreByGenre = {
+  Pop: "Pop / Soul",
+  "Hip-Hop/Rap": "Hip-Hop",
+  Rock: "Rock",
+  Metal: "Metal",
+  Electronic: "Electronic",
+  Jazz: "Jazz",
+  Classical: "Classical",
+  "R&B/Soul": "Pop / Soul",
+  "Country/Folk": "Roots",
+  "Indie/Alternative": "Rock",
+};
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -309,6 +323,10 @@ function formatPercent(value) {
   return `${Math.round(value * 100)}%`;
 }
 
+function broadGenreFor(item) {
+  return item.broadGenreDisplay || broadGenreByGenre[item.genre] || item.broadGenre || "--";
+}
+
 function renderModelPill(text) {
   modelPill.innerHTML = `<span class="status-dot"></span>${text}`;
 }
@@ -332,6 +350,7 @@ async function refreshBackendStatus() {
 function renderResults(features, results, modelInfo = {}) {
   const top = results[0];
   primaryGenre.textContent = top.genre;
+  primaryBroadGenre.textContent = `Broad genre: ${broadGenreFor(top)}`;
   confidence.textContent = `${formatPercent(top.probability)} confidence`;
   renderModelPill(modelInfo.source === "trained" ? "Trained CLIP model" : "Visual heuristic model");
 
@@ -340,7 +359,10 @@ function renderResults(features, results, modelInfo = {}) {
     .map(
       (item) => `
         <div class="probability-row">
-          <span>${item.genre}</span>
+          <span class="probability-label">
+            <strong>${item.genre}</strong>
+            <small>${broadGenreFor(item)}</small>
+          </span>
           <div class="bar-track" aria-hidden="true">
             <div class="bar-fill" style="--score: ${formatPercent(item.probability)}"></div>
           </div>
