@@ -32,7 +32,7 @@ The `ml/` folder adds the first real-model path:
 2. Encode each cover with CLIP image embeddings.
 3. Cache embeddings as the reusable experiment artifact.
 4. Train swappable classifier heads.
-4. Report top-1 and top-3 accuracy.
+5. Report exact top-1/top-3 accuracy plus broad-genre near-miss metrics.
 
 Start here:
 
@@ -60,6 +60,8 @@ Try a raw-pixel CNN baseline:
 uv run python ml/train_cnn.py --epochs 8
 uv run python ml/predict_cnn.py path/to/cover.jpg
 ```
+
+CNN training uses hierarchy-aware sibling smoothing by default, so mistakes inside the same broad family, such as Doom Metal vs Death Metal, are treated as closer than mistakes across unrelated families.
 
 Run a fuller CNN comparison with lightweight random hyperparameter search:
 

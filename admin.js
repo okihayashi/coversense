@@ -24,6 +24,10 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(value);
 }
 
+function hasValue(value) {
+  return value != null && value !== "";
+}
+
 function modelStatus(model) {
   if (model.serving) return "Serving";
   if (!model.artifactAvailable) return "Missing artifact";
@@ -44,7 +48,7 @@ function renderModelCards() {
           </span>
           <strong>${formatPercent(metrics.accuracy_top_1)}</strong>
           <span class="model-card-meta">
-            Top-3 ${formatPercent(metrics.accuracy_top_3)} · Test ${formatNumber(metrics.test_size)}
+            Broad ${formatPercent(metrics.accuracy_broad_top_1)} · Top-3 ${formatPercent(metrics.accuracy_top_3)}
           </span>
         </button>
       `;
@@ -65,20 +69,28 @@ function metricRows(model) {
     ["Artifact", model.artifactAvailable ? "Available" : "Missing"],
     ["Top-1 Accuracy", formatPercent(metrics.accuracy_top_1)],
     ["Top-3 Accuracy", formatPercent(metrics.accuracy_top_3)],
+    ["Broad Top-1", formatPercent(metrics.accuracy_broad_top_1)],
+    ["Broad Top-3", formatPercent(metrics.accuracy_broad_top_3)],
+    ["Near Misses", formatPercent(metrics.near_miss_rate)],
+    ["Far Misses", formatPercent(metrics.far_miss_rate)],
+    ["Hierarchical Score", formatPercent(metrics.hierarchical_score)],
     ["Train Size", formatNumber(metrics.train_size)],
     ["Test Size", formatNumber(metrics.test_size)],
     ["Failures", `${formatNumber(model.failureCount)} (${formatPercent(model.failureRate)})`],
   ];
 
-  if (metrics.classifier) rows.push(["Classifier", metrics.classifier]);
-  if (metrics.clip_model) rows.push(["Embedding", metrics.clip_model]);
-  if (metrics.image_size) rows.push(["Image Size", `${metrics.image_size}px`]);
-  if (metrics.epochs) rows.push(["Epochs", metrics.epochs]);
-  if (metrics.batch_size) rows.push(["Batch Size", metrics.batch_size]);
-  if (metrics.learning_rate) rows.push(["Learning Rate", Number(metrics.learning_rate).toExponential(2)]);
-  if (metrics.weight_decay) rows.push(["Weight Decay", Number(metrics.weight_decay).toExponential(2)]);
-  if (metrics.dropout) rows.push(["Dropout", Math.round(metrics.dropout * 100) / 100]);
-  if (tuning.trials) rows.push(["Tuning Trials", tuning.trials]);
+  if (hasValue(metrics.classifier)) rows.push(["Classifier", metrics.classifier]);
+  if (hasValue(metrics.clip_model)) rows.push(["Embedding", metrics.clip_model]);
+  if (hasValue(metrics.image_size)) rows.push(["Image Size", `${metrics.image_size}px`]);
+  if (hasValue(metrics.epochs)) rows.push(["Epochs", metrics.epochs]);
+  if (hasValue(metrics.batch_size)) rows.push(["Batch Size", metrics.batch_size]);
+  if (hasValue(metrics.learning_rate)) rows.push(["Learning Rate", Number(metrics.learning_rate).toExponential(2)]);
+  if (hasValue(metrics.weight_decay)) rows.push(["Weight Decay", Number(metrics.weight_decay).toExponential(2)]);
+  if (hasValue(metrics.dropout)) rows.push(["Dropout", Math.round(metrics.dropout * 100) / 100]);
+  if (hasValue(metrics.sibling_smoothing)) {
+    rows.push(["Sibling Smoothing", Math.round(metrics.sibling_smoothing * 100) / 100]);
+  }
+  if (hasValue(tuning.trials)) rows.push(["Tuning Trials", tuning.trials]);
   if (tuning.best_settings) rows.push(["Best CNN Width", tuning.best_settings.base_channels]);
 
   return rows;
@@ -92,10 +104,17 @@ function renderMetrics(model) {
 }
 
 function predictionText(example) {
+  const broadText =
+    example.errorType === "near_miss"
+      ? `Near miss: ${example.actualBroad}`
+      : example.errorType === "far_miss"
+        ? `${example.actualBroad} -> ${example.predictedBroad}`
+        : "Exact";
   return example.topPredictions
     .slice(0, 3)
     .map((item) => `${item.display} ${formatPercent(item.probability)}`)
-    .join(" / ");
+    .join(" / ")
+    .concat(` · ${broadText}`);
 }
 
 function renderExamples(payload) {

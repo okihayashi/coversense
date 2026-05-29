@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from embeddings import DEFAULT_DATA_DIR, choose_device
+from genre_taxonomy import broad_genre, error_type, hierarchy_metrics, sibling_distribution
 from train_classifier import DEFAULT_MODEL_DIR, DEFAULT_REPORT_DIR, write_confusion_matrix
 
 
@@ -123,6 +124,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--trial-epochs", type=int, default=None)
+    parser.add_argument(
+        "--sibling-smoothing",
+        type=float,
+        default=0.15,
+        help="Probability mass assigned to sibling labels in the same broad genre during CNN training.",
+    )
     return parser.parse_args()
 
 
@@ -199,6 +206,10 @@ def topk_correct(logits: torch.Tensor, targets: torch.Tensor, k: int) -> int:
     return topk.eq(targets.view(-1, 1)).any(dim=1).sum().item()
 
 
+def soft_cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    return -(targets * logits.log_softmax(dim=1)).sum(dim=1).mean()
+
+
 def channels_for(base_channels: int) -> tuple[int, ...]:
     return (base_channels, base_channels * 2, base_channels * 4, base_channels * 8)
 
@@ -259,6 +270,8 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    sibling_targets: torch.Tensor | None = None,
+    sibling_smoothing: float = 0.0,
 ) -> dict[str, float]:
     model.train()
     total_loss = 0.0
@@ -271,7 +284,15 @@ def train_one_epoch(
 
         optimizer.zero_grad(set_to_none=True)
         logits = model(images)
-        loss = criterion(logits, targets)
+        if sibling_targets is not None and sibling_smoothing > 0:
+            sibling_batch = sibling_targets[targets]
+            hard_targets = torch.nn.functional.one_hot(targets, num_classes=logits.size(1)).float()
+            soft_targets = hard_targets * (1 - sibling_smoothing) + sibling_batch * sibling_smoothing
+            no_siblings = sibling_batch.sum(dim=1) == 0
+            soft_targets[no_siblings] = hard_targets[no_siblings]
+            loss = soft_cross_entropy(logits, soft_targets)
+        else:
+            loss = criterion(logits, targets)
         loss.backward()
         optimizer.step()
 
@@ -339,6 +360,7 @@ def train_candidate(
     device: torch.device,
     args: argparse.Namespace,
     desc: str,
+    sibling_targets: torch.Tensor | None,
 ) -> dict[str, object]:
     config = CnnConfig(
         image_size=settings.image_size,
@@ -371,7 +393,15 @@ def train_candidate(
     best_top1 = -1.0
     history = []
     for epoch in range(1, epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        train_metrics = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            sibling_targets=sibling_targets,
+            sibling_smoothing=args.sibling_smoothing,
+        )
         eval_metrics = evaluate(model, eval_loader, criterion, device)
         epoch_metrics = {
             "phase": desc,
@@ -416,7 +446,10 @@ def evaluation_examples(
                 "imagePath": image_path.as_posix(),
                 "actual": labels[int(actual_index)],
                 "predicted": labels[predicted_index],
+                "actualBroad": broad_genre(labels[int(actual_index)]),
+                "predictedBroad": broad_genre(labels[predicted_index]),
                 "correct": predicted_index == int(actual_index),
+                "errorType": error_type(labels[int(actual_index)], labels[predicted_index]),
                 "confidence": float(row[predicted_index]),
                 "topPredictions": [
                     {"label": labels[int(index)], "probability": float(row[int(index)])}
@@ -461,6 +494,7 @@ def main() -> None:
     device = resolve_device(args.device)
     trial_epochs = args.trial_epochs or max(1, min(args.epochs, 3))
     labels_out = label_encoder.classes_.tolist()
+    sibling_targets = torch.from_numpy(sibling_distribution(labels_out)).to(device)
     rng = random.Random(args.seed)
     trials = []
     best_trial = None
@@ -490,6 +524,7 @@ def main() -> None:
             device=device,
             args=args,
             desc=f"trial-{trial}",
+            sibling_targets=sibling_targets,
         )
         trial_summary = {
             "trial": trial,
@@ -520,6 +555,7 @@ def main() -> None:
             device=device,
             args=args,
             desc="final",
+            sibling_targets=sibling_targets,
         )
     else:
         final_result = best_trial
@@ -548,12 +584,21 @@ def main() -> None:
         "weight_decay": best_settings.weight_decay,
         "dropout": best_settings.dropout,
         "base_channels": best_settings.base_channels,
+        "sibling_smoothing": args.sibling_smoothing,
         "device": device.type,
         "accuracy_top_1": final_metrics["accuracy_top_1"],
         "accuracy_top_3": final_metrics["accuracy_top_3"],
         "labels": labels_out,
         "history": final_result["history"],
     }
+    metrics.update(
+        hierarchy_metrics(
+            final_metrics["y_true"],
+            final_metrics["y_pred"],
+            final_metrics["probabilities"],
+            labels_out,
+        )
+    )
 
     model_path = args.model_dir / "coversense_cnn.pt"
     torch.save(

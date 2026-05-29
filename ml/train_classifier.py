@@ -21,6 +21,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import LinearSVC
 
 from embeddings import DEFAULT_CLIP_MODEL, DEFAULT_EMBEDDING_DIR
+from genre_taxonomy import broad_genre, error_type, hierarchy_metrics
 
 
 DEFAULT_MODEL_DIR = Path("models")
@@ -124,7 +125,10 @@ def evaluation_examples(
                 "imagePath": str(image_path),
                 "actual": labels[int(actual_index)],
                 "predicted": labels[predicted_index],
+                "actualBroad": broad_genre(labels[int(actual_index)]),
+                "predictedBroad": broad_genre(labels[predicted_index]),
                 "correct": predicted_index == int(actual_index),
+                "errorType": error_type(labels[int(actual_index)], labels[predicted_index]),
                 "confidence": float(row[predicted_index]),
                 "topPredictions": [
                     {"label": labels[int(index)], "probability": float(row[int(index)])}
@@ -173,6 +177,7 @@ def main() -> None:
         "accuracy_top_3": top_k_accuracy_score(y_test, probabilities, k=3, labels=np.arange(len(labels_out))),
         "labels": labels_out,
     }
+    metrics.update(hierarchy_metrics(y_test, predictions, probabilities, labels_out))
 
     payload = {
         "clip_model": args.clip_model,

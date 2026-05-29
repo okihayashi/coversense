@@ -7,7 +7,7 @@ The approach is intentionally practical:
 1. Download a labeled album-cover dataset from Hugging Face.
 2. Encode each cover with a frozen CLIP vision model and cache those embeddings.
 3. Train a swappable classifier head on the cached embeddings.
-4. Write accuracy metrics, a confusion matrix, and a reusable model artifact.
+4. Write exact and broad-genre metrics, a confusion matrix, and a reusable model artifact.
 
 The default dataset is `eong/20k-Album-Covers-within-20-Genres`, which has 20 genres and 1,000 album covers per genre.
 
@@ -71,6 +71,8 @@ reports/classification_report.txt
 reports/confusion_matrix.csv
 ```
 
+Reports include exact top-1/top-3 accuracy, broad-family top-1/top-3 accuracy, near-miss rate, far-miss rate, and a hierarchical score. A near miss means the predicted label is in the same broad family as the target, such as Doom Metal vs Death Metal.
+
 ## Train CNN Baseline
 
 The CNN path learns directly from resized album-cover pixels instead of using CLIP embeddings:
@@ -78,6 +80,8 @@ The CNN path learns directly from resized album-cover pixels instead of using CL
 ```bash
 uv run python ml/train_cnn.py --epochs 8
 ```
+
+By default, CNN training uses `--sibling-smoothing 0.15`, which assigns a small amount of target probability to labels in the same broad family. Set `--sibling-smoothing 0` to train with ordinary hard labels.
 
 This creates:
 
