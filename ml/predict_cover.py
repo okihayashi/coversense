@@ -9,7 +9,8 @@ from pathlib import Path
 import joblib
 import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
+
+from embeddings import choose_device, load_clip, tensor_from_clip_output
 
 
 DEFAULT_MODEL_PATH = Path("models/coversense_clip_classifier.joblib")
@@ -23,35 +24,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def choose_device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
-
-
-def tensor_from_clip_output(output):
-    if isinstance(output, torch.Tensor):
-        return output
-    if hasattr(output, "image_embeds"):
-        return output.image_embeds
-    if hasattr(output, "pooler_output"):
-        return output.pooler_output
-    if isinstance(output, (tuple, list)):
-        return output[0]
-    raise TypeError(f"Unsupported CLIP output type: {type(output)!r}")
-
-
 @torch.inference_mode()
 def main() -> None:
     args = parse_args()
     payload = joblib.load(args.model)
 
     device = choose_device()
-    processor = CLIPProcessor.from_pretrained(payload["clip_model"])
-    clip_model = CLIPModel.from_pretrained(payload["clip_model"]).to(device)
-    clip_model.eval()
+    processor, clip_model = load_clip(payload["clip_model"], device)
 
     with Image.open(args.image) as image:
         inputs = processor(images=[image.convert("RGB")], return_tensors="pt", padding=True)
@@ -60,9 +39,18 @@ def main() -> None:
     features = clip_model.get_image_features(**inputs)
     features = tensor_from_clip_output(features)
     features = features / features.norm(dim=-1, keepdim=True)
-    features = payload["scaler"].transform(features.cpu().numpy())
+    features = features.cpu().numpy()
 
-    probabilities = payload["classifier"].predict_proba(features)[0]
+    classifier = payload["classifier"]
+    if isinstance(classifier, dict):
+        features = classifier["scaler"].transform(features)
+        probabilities = classifier["classifier"].predict_proba(features)[0]
+    elif "scaler" in payload:
+        features = payload["scaler"].transform(features)
+        probabilities = classifier.predict_proba(features)[0]
+    else:
+        probabilities = classifier.predict_proba(features)[0]
+
     labels = payload["label_encoder"].classes_
     ranked = sorted(zip(labels, probabilities), key=lambda item: item[1], reverse=True)
 

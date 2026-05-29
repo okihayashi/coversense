@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Train a swappable classifier head from cached album-cover embeddings."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+from pathlib import Path
+
+import joblib
+import numpy as np
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, top_k_accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.svm import LinearSVC
+
+from embeddings import DEFAULT_CLIP_MODEL, DEFAULT_EMBEDDING_DIR
+
+
+DEFAULT_MODEL_DIR = Path("models")
+DEFAULT_REPORT_DIR = Path("reports")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--embeddings", type=Path, default=DEFAULT_EMBEDDING_DIR / "clip-vit-base-patch32.npz")
+    parser.add_argument(
+        "--classifier",
+        choices=["logreg", "linear-svc", "random-forest", "mlp"],
+        default="logreg",
+    )
+    parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
+    parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR)
+    parser.add_argument("--clip-model", default=DEFAULT_CLIP_MODEL)
+    parser.add_argument("--test-size", type=float, default=0.2)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-iter", type=int, default=2000)
+    return parser.parse_args()
+
+
+def build_classifier(name: str, seed: int, max_iter: int):
+    if name == "logreg":
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    LogisticRegression(
+                        C=2.0,
+                        class_weight="balanced",
+                        max_iter=max_iter,
+                        random_state=seed,
+                    ),
+                ),
+            ]
+        )
+    if name == "linear-svc":
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    CalibratedClassifierCV(
+                        LinearSVC(C=1.0, class_weight="balanced", random_state=seed),
+                        cv=3,
+                    ),
+                ),
+            ]
+        )
+    if name == "random-forest":
+        return RandomForestClassifier(
+            n_estimators=500,
+            class_weight="balanced",
+            n_jobs=-1,
+            random_state=seed,
+        )
+    if name == "mlp":
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    MLPClassifier(
+                        hidden_layer_sizes=(512, 128),
+                        alpha=0.001,
+                        batch_size=256,
+                        early_stopping=True,
+                        max_iter=max_iter,
+                        random_state=seed,
+                    ),
+                ),
+            ]
+        )
+    raise ValueError(f"Unsupported classifier: {name}")
+
+
+def write_confusion_matrix(path: Path, labels: list[str], matrix: np.ndarray) -> None:
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["actual/predicted", *labels])
+        for label, row in zip(labels, matrix):
+            writer.writerow([label, *row.tolist()])
+
+
+def main() -> None:
+    args = parse_args()
+    args.model_dir.mkdir(parents=True, exist_ok=True)
+    args.report_dir.mkdir(parents=True, exist_ok=True)
+
+    cache = np.load(args.embeddings, allow_pickle=False)
+    x = cache["embeddings"]
+    labels = cache["labels"]
+    image_paths = cache["image_paths"]
+
+    label_encoder = LabelEncoder()
+    y = label_encoder.fit_transform(labels)
+    indices = np.arange(len(y))
+    train_idx, test_idx, y_train, y_test = train_test_split(
+        indices,
+        y,
+        test_size=args.test_size,
+        random_state=args.seed,
+        stratify=y,
+    )
+
+    classifier = build_classifier(args.classifier, args.seed, args.max_iter)
+    classifier.fit(x[train_idx], y_train)
+
+    predictions = classifier.predict(x[test_idx])
+    probabilities = classifier.predict_proba(x[test_idx])
+    labels_out = label_encoder.classes_.tolist()
+
+    metrics = {
+        "clip_model": args.clip_model,
+        "classifier": args.classifier,
+        "embedding_cache": args.embeddings.as_posix(),
+        "train_size": int(len(train_idx)),
+        "test_size": int(len(test_idx)),
+        "accuracy_top_1": accuracy_score(y_test, predictions),
+        "accuracy_top_3": top_k_accuracy_score(y_test, probabilities, k=3, labels=np.arange(len(labels_out))),
+        "labels": labels_out,
+    }
+
+    payload = {
+        "clip_model": args.clip_model,
+        "classifier_name": args.classifier,
+        "label_encoder": label_encoder,
+        "classifier": classifier,
+    }
+    model_path = args.model_dir / "coversense_clip_classifier.joblib"
+    joblib.dump(payload, model_path)
+
+    (args.model_dir / "coversense_labels.json").write_text(json.dumps(labels_out, indent=2), encoding="utf-8")
+    (args.report_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    (args.report_dir / "classification_report.txt").write_text(
+        classification_report(y_test, predictions, target_names=labels_out),
+        encoding="utf-8",
+    )
+    write_confusion_matrix(args.report_dir / "confusion_matrix.csv", labels_out, confusion_matrix(y_test, predictions))
+    np.savez_compressed(
+        args.report_dir / "split_indices.npz",
+        train_idx=train_idx,
+        test_idx=test_idx,
+        test_image_paths=image_paths[test_idx],
+    )
+
+    print(json.dumps(metrics, indent=2))
+    print(f"Saved model: {model_path}")
+
+
+if __name__ == "__main__":
+    main()

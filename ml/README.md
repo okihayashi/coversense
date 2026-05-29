@@ -5,8 +5,8 @@ This folder contains the first real accuracy-improvement path for CoverSense.
 The approach is intentionally practical:
 
 1. Download a labeled album-cover dataset from Hugging Face.
-2. Encode each cover with a frozen CLIP vision model.
-3. Train a lightweight logistic-regression classifier on those image embeddings.
+2. Encode each cover with a frozen CLIP vision model and cache those embeddings.
+3. Train a swappable classifier head on the cached embeddings.
 4. Write accuracy metrics, a confusion matrix, and a reusable model artifact.
 
 The default dataset is `eong/20k-Album-Covers-within-20-Genres`, which has 20 genres and 1,000 album covers per genre.
@@ -39,6 +39,23 @@ uv run python ml/download_hf_album_covers.py --max-per-label 50
 ```
 
 ## Train Classifier
+
+For fast iteration, build embeddings once:
+
+```bash
+uv run python ml/build_embeddings.py
+```
+
+Then train any supported classifier head:
+
+```bash
+uv run python ml/train_classifier.py --classifier logreg
+uv run python ml/train_classifier.py --classifier linear-svc
+uv run python ml/train_classifier.py --classifier random-forest
+uv run python ml/train_classifier.py --classifier mlp
+```
+
+The original one-command CLIP + logistic-regression path still works:
 
 ```bash
 uv run python ml/train_clip_classifier.py

@@ -4,5 +4,6 @@ coversense-screenshot.png
 data/
 models/
 reports/
+embeddings/
 *.joblib
 __pycache__/

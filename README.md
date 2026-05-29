@@ -28,7 +28,8 @@ The `ml/` folder adds the first real-model path:
 
 1. Download a labeled album-cover dataset from Hugging Face.
 2. Encode each cover with CLIP image embeddings.
-3. Train a lightweight classifier.
+3. Cache embeddings as the reusable experiment artifact.
+4. Train swappable classifier heads.
 4. Report top-1 and top-3 accuracy.
 
 Start here:
@@ -36,8 +37,17 @@ Start here:
 ```bash
 uv sync
 uv run python ml/download_hf_album_covers.py --max-per-label 50
-uv run python ml/train_clip_classifier.py
+uv run python ml/build_embeddings.py
+uv run python ml/train_classifier.py --classifier logreg
 uv run python ml/predict_cover.py path/to/cover.jpg
 ```
 
 Remove `--max-per-label 50` when you are ready to train on the full dataset.
+
+Try other classifier heads without rebuilding embeddings:
+
+```bash
+uv run python ml/train_classifier.py --classifier linear-svc
+uv run python ml/train_classifier.py --classifier random-forest
+uv run python ml/train_classifier.py --classifier mlp
+```

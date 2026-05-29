@@ -90,6 +90,14 @@ def read_metrics() -> dict:
     return json.loads(METRICS_PATH.read_text(encoding="utf-8"))
 
 
+def classifier_name(payload: dict, metrics: dict | None = None) -> str:
+    if payload.get("classifier_name"):
+        return payload["classifier_name"]
+    if metrics and metrics.get("classifier"):
+        return metrics["classifier"]
+    return "logreg"
+
+
 def image_from_upload(raw_bytes: bytes) -> Image.Image:
     try:
         return Image.open(BytesIO(raw_bytes)).convert("RGB")
@@ -111,9 +119,18 @@ def predict_image(image: Image.Image, top_k: int = 6) -> list[dict]:
     features = clip_model.get_image_features(**inputs)
     features = tensor_from_clip_output(features)
     features = features / features.norm(dim=-1, keepdim=True)
-    features = payload["scaler"].transform(features.cpu().numpy())
+    features = features.cpu().numpy()
 
-    probabilities = payload["classifier"].predict_proba(features)[0]
+    classifier = payload["classifier"]
+    if isinstance(classifier, dict):
+        features = classifier["scaler"].transform(features)
+        probabilities = classifier["classifier"].predict_proba(features)[0]
+    elif "scaler" in payload:
+        features = payload["scaler"].transform(features)
+        probabilities = classifier.predict_proba(features)[0]
+    else:
+        probabilities = classifier.predict_proba(features)[0]
+
     labels = payload["label_encoder"].classes_
     ranked = sorted(zip(labels, probabilities), key=lambda item: item[1], reverse=True)
 
@@ -170,7 +187,7 @@ async def predict(file: UploadFile = File(...)):
     metrics = read_metrics()
 
     return {
-        "model": "clip-logistic-regression",
+        "model": f"clip-{classifier_name(load_predictor()['payload'], metrics)}",
         "clipModel": metrics.get("clip_model", "openai/clip-vit-base-patch32"),
         "accuracyTop1": metrics.get("accuracy_top_1"),
         "accuracyTop3": metrics.get("accuracy_top_3"),
