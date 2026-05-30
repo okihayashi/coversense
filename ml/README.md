@@ -116,3 +116,5 @@ uv run python ml/predict_cnn.py path/to/cover.jpg
 ## Notes
 
 The Hugging Face dataset is convenient for a first model, but it does not include artist IDs. For a stronger benchmark, later datasets should split by artist or album family so the model cannot memorize artist-specific design language.
+
+For mislabeled examples, keep the raw dataset unchanged and apply reviewed label overrides during training. See `DATA_QUALITY.md` for the cleanup workflow.

@@ -1,16 +1,18 @@
 :root {
-  --ink: #151514;
-  --muted: #66625b;
-  --line: #ded8cd;
-  --paper: #f7f4ed;
-  --panel: #fffdf8;
-  --coal: #23211f;
-  --mint: #84bca3;
-  --coral: #d95d4f;
-  --gold: #c8a33f;
-  --cyan: #168f9e;
-  --violet: #70559a;
-  --shadow: 0 24px 70px rgba(40, 36, 28, 0.14);
+  --ink: #0a0a0a;
+  --muted: #6b7280;
+  --soft: #9ca3af;
+  --line: #e5e7eb;
+  --line-strong: #d1d5db;
+  --paper: #ffffff;
+  --panel: #ffffff;
+  --coal: #0a0a0a;
+  --mint: #16a34a;
+  --coral: #ef4444;
+  --gold: #a16207;
+  --cyan: #2563eb;
+  --violet: #7c3aed;
+  --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
 }
 
 * {
@@ -24,10 +26,7 @@ body {
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   color: var(--ink);
-  background:
-    linear-gradient(90deg, rgba(217, 93, 79, 0.08), transparent 34%),
-    linear-gradient(160deg, rgba(22, 143, 158, 0.12), transparent 42%),
-    var(--paper);
+  background: var(--paper);
 }
 
 button,
@@ -40,10 +39,10 @@ button {
 }
 
 .app-shell {
-  width: min(1240px, 100%);
+  width: min(1180px, 100%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 28px;
+  padding: 26px;
   display: flex;
   align-items: stretch;
 }
@@ -52,15 +51,16 @@ button {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 18px;
-  padding: 6px 2px 0;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--line);
 }
 
 .topbar-actions {
@@ -70,26 +70,26 @@ button {
 }
 
 .admin-link {
-  min-height: 40px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  padding: 0 13px;
+  border: 1px solid var(--coal);
+  border-radius: 6px;
   background: var(--coal);
   color: var(--panel);
-  font-size: 0.9rem;
-  font-weight: 800;
+  font-size: 0.86rem;
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .eyebrow,
 .section-label {
-  margin: 0 0 6px;
-  color: var(--coral);
-  font-size: 0.76rem;
-  font-weight: 800;
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -101,22 +101,24 @@ p {
 }
 
 h1 {
-  font-size: clamp(1.75rem, 4vw, 3.4rem);
-  line-height: 0.95;
+  font-size: clamp(1.65rem, 3vw, 2.85rem);
+  line-height: 1;
   letter-spacing: 0;
+  font-weight: 760;
 }
 
 .model-pill {
-  min-height: 40px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 253, 248, 0.78);
+  border-radius: 6px;
+  background: var(--panel);
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.86rem;
+  font-weight: 650;
   white-space: nowrap;
 }
 
@@ -130,8 +132,8 @@ h1 {
 
 .main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(340px, 0.96fr);
-  gap: 22px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(350px, 0.92fr);
+  gap: 18px;
   flex: 1;
 }
 
@@ -143,7 +145,7 @@ h1 {
 .input-panel {
   display: grid;
   grid-template-rows: auto minmax(320px, 1fr) auto;
-  gap: 16px;
+  gap: 12px;
 }
 
 .drop-zone {
@@ -152,11 +154,11 @@ h1 {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 13px;
-  min-height: 72px;
-  padding: 14px 16px;
-  border: 1px dashed #b9b0a1;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
   border-radius: 8px;
-  background: rgba(255, 253, 248, 0.72);
+  background: #fafafa;
   transition:
     border-color 180ms ease,
     transform 180ms ease,
@@ -165,8 +167,8 @@ h1 {
 
 .drop-zone:hover,
 .drop-zone.is-dragging {
-  border-color: var(--cyan);
-  background: rgba(255, 253, 248, 0.94);
+  border-color: var(--coal);
+  background: var(--panel);
   transform: translateY(-1px);
 }
 
@@ -178,19 +180,20 @@ h1 {
 }
 
 .drop-icon {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  color: var(--panel);
-  background: var(--coal);
-  font-size: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--panel);
+  font-size: 1.15rem;
   line-height: 1;
 }
 
 .drop-title {
-  font-weight: 800;
+  font-weight: 720;
 }
 
 .drop-meta {
@@ -202,31 +205,22 @@ h1 {
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background:
-    linear-gradient(45deg, rgba(21, 21, 20, 0.04) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(21, 21, 20, 0.04) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(21, 21, 20, 0.04) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(21, 21, 20, 0.04) 75%),
-    var(--panel);
-  background-size: 28px 28px;
-  background-position:
-    0 0,
-    0 14px,
-    14px -14px,
-    -14px 0;
+  background: #fafafa;
   box-shadow: var(--shadow);
 }
 
 #previewCanvas {
-  width: min(100%, 68vh);
+  width: min(100%, 66vh);
   max-width: 650px;
   aspect-ratio: 1;
   height: auto;
-  border-radius: 6px;
-  box-shadow: 0 18px 42px rgba(20, 19, 17, 0.22);
-  background: #ede6db;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.13);
+  background: #f3f4f6;
 }
 
 .sample-row {
@@ -236,7 +230,7 @@ h1 {
 }
 
 .sample-card {
-  min-height: 48px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -244,9 +238,9 @@ h1 {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 253, 248, 0.82);
+  background: var(--panel);
   color: var(--ink);
-  font-weight: 750;
+  font-weight: 680;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -255,8 +249,8 @@ h1 {
 
 .sample-card:hover {
   transform: translateY(-1px);
-  border-color: #a89e8d;
-  background: var(--panel);
+  border-color: var(--coal);
+  background: #fafafa;
 }
 
 .sample-swatch {
@@ -293,12 +287,12 @@ h1 {
 .metric-card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 253, 248, 0.9);
+  background: var(--panel);
 }
 
 .prediction-card,
 .explain-panel {
-  padding: 22px;
+  padding: 20px;
 }
 
 .primary-prediction {
@@ -315,21 +309,23 @@ h1 {
 }
 
 .primary-prediction h2 {
-  font-size: clamp(1.7rem, 4vw, 3rem);
+  font-size: clamp(1.85rem, 3.8vw, 3.2rem);
   line-height: 1;
   letter-spacing: 0;
+  font-weight: 780;
 }
 
 .broad-genre {
   margin-top: 8px;
   color: var(--muted);
   font-size: 0.9rem;
-  font-weight: 760;
+  font-weight: 650;
 }
 
 #confidence {
   color: var(--muted);
-  font-weight: 700;
+  font-size: 0.9rem;
+  font-weight: 680;
   white-space: nowrap;
 }
 
@@ -362,7 +358,7 @@ h1 {
 .probability-label strong {
   color: var(--ink);
   font-size: 0.9rem;
-  font-weight: 780;
+  font-weight: 700;
 }
 
 .probability-label small {
@@ -372,17 +368,17 @@ h1 {
 }
 
 .bar-track {
-  height: 10px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9e1d4;
+  background: #f3f4f6;
 }
 
 .bar-fill {
   width: var(--score);
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--cyan), var(--coral));
+  background: var(--coal);
 }
 
 .metrics-grid {
@@ -392,7 +388,7 @@ h1 {
 }
 
 .metric-card {
-  min-height: 78px;
+  min-height: 74px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -403,11 +399,11 @@ h1 {
 .metric-card span {
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 760;
+  font-weight: 650;
 }
 
 .metric-card strong {
-  font-size: 1.45rem;
+  font-size: 1.38rem;
   letter-spacing: 0;
 }
 
@@ -424,11 +420,16 @@ h1 {
 }
 
 .evidence-list li {
-  padding: 12px 14px;
-  border-left: 4px solid var(--gold);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(200, 163, 63, 0.12);
-  color: #3f392b;
+  background: transparent;
+  color: #374151;
+  line-height: 1.45;
+}
+
+.evidence-list li:last-child {
+  border-bottom: 0;
 }
 
 .admin-shell {
