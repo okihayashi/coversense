@@ -140,6 +140,19 @@ button:disabled {
   color: var(--ink);
 }
 
+.top-nav a.is-active,
+.top-nav a[aria-current="page"] {
+  background: var(--ink);
+  color: var(--page);
+}
+
+.top-nav a:focus-visible,
+.menu-dropdown summary:focus-visible,
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .menu-dropdown {
   position: relative;
 }
@@ -186,6 +199,10 @@ button:disabled {
   border-radius: 6px;
 }
 
+.menu-list a:hover {
+  background: var(--subtle);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -193,7 +210,6 @@ button:disabled {
 }
 
 .model-pill,
-.admin-link,
 .theme-toggle {
   min-height: 36px;
   display: inline-flex;
@@ -210,14 +226,6 @@ button:disabled {
   padding: 0 12px;
   border: 1px solid var(--line);
   color: var(--muted);
-}
-
-.admin-link {
-  padding: 0 13px;
-  border: 1px solid var(--button-bg);
-  background: var(--button-bg);
-  color: var(--button-text);
-  text-decoration: none;
 }
 
 .theme-toggle {
@@ -1034,7 +1042,7 @@ p {
   }
 
   .top-nav {
-    display: none;
+    display: flex;
   }
 
   .hero-copy h1 {

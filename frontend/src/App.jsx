@@ -77,7 +77,43 @@ function useTheme() {
   return [theme, () => setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"))];
 }
 
-function TopBar({ statusText, theme, onToggleTheme }) {
+function getCurrentPage() {
+  if (!window.location.pathname.startsWith("/admin")) return "predict";
+  return window.location.hash === "#review" ? "review" : "models";
+}
+
+function useCurrentPage() {
+  const [currentPage, setCurrentPage] = useState(getCurrentPage);
+
+  useEffect(() => {
+    function updateCurrentPage() {
+      setCurrentPage(getCurrentPage());
+    }
+
+    window.addEventListener("hashchange", updateCurrentPage);
+    window.addEventListener("popstate", updateCurrentPage);
+    return () => {
+      window.removeEventListener("hashchange", updateCurrentPage);
+      window.removeEventListener("popstate", updateCurrentPage);
+    };
+  }, []);
+
+  return currentPage;
+}
+
+const secondaryLinks = [
+  ["Data quality", "https://github.com/okihayashi/coversense/blob/main/ml/DATA_QUALITY.md"],
+  ["Training notes", "https://github.com/okihayashi/coversense/blob/main/ml/README.md"],
+  ["Source code", "https://github.com/okihayashi/coversense"],
+];
+
+function TopBar({ statusText, theme, onToggleTheme, currentPage }) {
+  const primaryLinks = [
+    ["Predict", "/#predictor", currentPage === "predict"],
+    ["Models", "/admin#models", currentPage === "models"],
+    ["Review", "/admin#review", currentPage === "review"],
+  ];
+
   return (
     <header className="topbar">
       <a className="brand-mark" href="/" aria-label="CoverSense home">
@@ -85,14 +121,17 @@ function TopBar({ statusText, theme, onToggleTheme }) {
         CoverSense
       </a>
       <nav className="top-nav" aria-label="Primary navigation">
-        <a href="/#predictor">Predict</a>
+        {primaryLinks.map(([label, href, isActive]) => (
+          <a className={isActive ? "is-active" : undefined} href={href} aria-current={isActive ? "page" : undefined} key={label}>
+            {label}
+          </a>
+        ))}
         <details className="menu-dropdown">
-          <summary>Menu</summary>
+          <summary>More</summary>
           <div className="menu-list">
-            <a href="/">Inference app</a>
-            <a href="/admin">Model dashboard</a>
-            <a href="/admin">Evaluation reports</a>
-            <a href="https://github.com/okihayashi/coversense">GitHub repo</a>
+            {secondaryLinks.map(([label, href]) => (
+              <a href={href} key={label}>{label}</a>
+            ))}
           </div>
         </details>
       </nav>
@@ -104,7 +143,6 @@ function TopBar({ statusText, theme, onToggleTheme }) {
         <button className="theme-toggle" type="button" onClick={onToggleTheme} aria-label="Toggle dark and light mode">
           {theme === "dark" ? "Light" : "Dark"}
         </button>
-        <a className="admin-link" href="/admin">Dashboard</a>
       </div>
     </header>
   );
@@ -430,7 +468,7 @@ function AdminPage({ setStatusText }) {
         <h1>Model observability</h1>
       </section>
 
-      <section className="admin-model-grid" aria-label="Model list">
+      <section id="models" className="admin-model-grid" aria-label="Model list">
         {models.map((model) => {
           const metrics = model.metrics || {};
           return (
@@ -453,7 +491,7 @@ function AdminPage({ setStatusText }) {
         })}
       </section>
 
-      <section className="admin-detail-grid">
+      <section id="review" className="admin-detail-grid">
         <div className="admin-panel">
           <div className="admin-panel-header">
             <div>
@@ -542,11 +580,12 @@ export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [statusText, setStatusText] = useState("Checking model");
   const isAdmin = window.location.pathname.startsWith("/admin");
+  const currentPage = useCurrentPage();
 
   return (
     <main className="app-shell">
       <section className="workspace" aria-label={isAdmin ? "CoverSense model observability" : "Album cover genre predictor"}>
-        <TopBar statusText={statusText} theme={theme} onToggleTheme={toggleTheme} />
+        <TopBar statusText={statusText} theme={theme} onToggleTheme={toggleTheme} currentPage={currentPage} />
         {isAdmin ? <AdminPage setStatusText={setStatusText} /> : <InferencePage statusText={statusText} setStatusText={setStatusText} />}
       </section>
     </main>
