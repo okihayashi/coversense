@@ -10,18 +10,35 @@
     <main class="app-shell admin-shell">
       <section class="workspace" aria-label="CoverSense model observability">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">CoverSense Admin</p>
-            <h1>Model observability</h1>
-          </div>
+          <a class="brand-mark" href="/" aria-label="CoverSense home">
+            <span class="brand-glyph" aria-hidden="true"></span>
+            CoverSense
+          </a>
+          <nav class="top-nav" aria-label="Primary navigation">
+            <a href="/">Predict</a>
+            <details class="menu-dropdown">
+              <summary>Menu</summary>
+              <div class="menu-list">
+                <a href="/">Inference app</a>
+                <a href="/admin">Model dashboard</a>
+                <a href="https://github.com/okihayashi/coversense">GitHub repo</a>
+              </div>
+            </details>
+          </nav>
           <div class="topbar-actions">
-            <a class="admin-link" href="/">Predict</a>
             <div class="model-pill">
               <span class="status-dot"></span>
               Evaluation reports
             </div>
+            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark and light mode">Dark</button>
+            <a class="admin-link" href="/">Predict</a>
           </div>
         </header>
+
+        <section class="admin-heading">
+          <p class="eyebrow">CoverSense Admin</p>
+          <h1>Model observability</h1>
+        </section>
 
         <section id="modelGrid" class="admin-model-grid" aria-label="Model list"></section>
 

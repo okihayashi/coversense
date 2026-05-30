@@ -7,12 +7,21 @@ const pageStatus = document.querySelector("#pageStatus");
 const showAllToggle = document.querySelector("#showAllToggle");
 const prevPage = document.querySelector("#prevPage");
 const nextPage = document.querySelector("#nextPage");
+const themeToggle = document.querySelector("#themeToggle");
 
 let models = [];
 let selectedModelId = null;
 let failedOnly = true;
 let exampleOffset = 0;
 const pageSize = 18;
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("coversense-theme", theme);
+  if (themeToggle) themeToggle.textContent = theme === "dark" ? "Light" : "Dark";
+}
+
+applyTheme(localStorage.getItem("coversense-theme") || "light");
 
 function formatPercent(value) {
   if (value == null) return "--";
@@ -202,6 +211,13 @@ nextPage.addEventListener("click", async () => {
   exampleOffset += pageSize;
   await loadExamples();
 });
+
+if (themeToggle) {
+  themeToggle.addEventListener("click", () => {
+    const currentTheme = document.documentElement.dataset.theme || "light";
+    applyTheme(currentTheme === "dark" ? "light" : "dark");
+  });
+}
 
 loadModels().catch((error) => {
   selectedModelName.textContent = "Admin unavailable";

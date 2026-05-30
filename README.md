@@ -15,6 +15,16 @@ uv run uvicorn backend.server:app --reload --host 127.0.0.1 --port 8000
 
 Then open `http://127.0.0.1:8000`.
 
+For the React frontend workspace:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Run the backend on `127.0.0.1:8001` while using the Vite dev server; API calls are proxied from the frontend.
+
 Model observability is available at `http://127.0.0.1:8000/admin`. It lists model artifacts, evaluation metrics, tuning details, and failed artwork examples for error analysis.
 
 If `models/coversense_clip_classifier.joblib` is missing, train first with:

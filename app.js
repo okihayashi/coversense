@@ -13,6 +13,7 @@ const genres = [
 
 const fileInput = document.querySelector("#fileInput");
 const dropZone = document.querySelector("#dropZone");
+const previewWrap = document.querySelector("#previewWrap");
 const canvas = document.querySelector("#previewCanvas");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
@@ -21,13 +22,17 @@ const primaryBroadGenre = document.querySelector("#primaryBroadGenre");
 const confidence = document.querySelector("#confidence");
 const probabilityList = document.querySelector("#probabilityList");
 const evidenceList = document.querySelector("#evidenceList");
-
-const metricBrightness = document.querySelector("#metricBrightness");
-const metricSaturation = document.querySelector("#metricSaturation");
-const metricContrast = document.querySelector("#metricContrast");
-const metricEdges = document.querySelector("#metricEdges");
+const similarGrid = document.querySelector("#similarGrid");
+const similarSummary = document.querySelector("#similarSummary");
 const modelPill = document.querySelector(".model-pill");
 let backendReady = false;
+
+const sampleImageByType = {
+  electronic: "data/album_covers_20_genres/images/electronic/electronic-00410.jpg",
+  metal: "data/album_covers_20_genres/images/heavymetal/heavymetal-00366.jpg",
+  jazz: "data/album_covers_20_genres/images/jazz/jazz-00316.jpg",
+  pop: "data/album_covers_20_genres/images/pop/pop-00591.jpg",
+};
 
 const broadGenreByGenre = {
   Pop: "Pop / Soul",
@@ -82,22 +87,12 @@ function luminance(r, g, b) {
 }
 
 function resetCanvas() {
-  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  gradient.addColorStop(0, "#e9dcc7");
-  gradient.addColorStop(0.5, "#d3e6df");
-  gradient.addColorStop(1, "#f1b3a7");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = "rgba(21, 21, 20, 0.74)";
-  ctx.fillRect(88, 440, 544, 96);
-  ctx.fillStyle = "#fffdf8";
-  ctx.font = "700 48px Inter, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("Add cover art", canvas.width / 2, 501);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  previewWrap.classList.add("is-hidden");
 }
 
 function drawImageToCanvas(img) {
+  previewWrap.classList.remove("is-hidden");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const sourceSize = Math.min(img.naturalWidth, img.naturalHeight);
   const sx = (img.naturalWidth - sourceSize) / 2;
@@ -286,27 +281,28 @@ function scoreGenres(features) {
 }
 
 function featureEvidence(features, results, modelInfo = {}) {
-  const f = features;
   const evidence = [];
   const top = results[0].genre;
+  const broad = broadGenreFor(results[0]);
 
   if (modelInfo.source === "trained") {
     const top3 = results
       .slice(0, 3)
       .map((item) => `${item.genre} ${formatPercent(item.probability)}`)
       .join(", ");
-    evidence.push(`Trained CLIP classifier top matches: ${top3}.`);
-    if (modelInfo.accuracyTop1 != null && modelInfo.accuracyTop3 != null) {
+    evidence.push(`The CLIP embedding model ranks this closest to ${top}; its broad family is ${broad}.`);
+    evidence.push(`Top alternatives: ${top3}. Similar held-out covers below provide a quick plausibility check.`);
+    if (modelInfo.accuracyTop1 != null && modelInfo.accuracyBroadTop1 != null) {
       evidence.push(
-        `Full-dataset validation: ${formatPercent(modelInfo.accuracyTop1)} top-1, ${formatPercent(
-          modelInfo.accuracyTop3,
-        )} top-3.`,
+        `Held-out accuracy: ${formatPercent(modelInfo.accuracyTop1)} exact top-1, ${formatPercent(
+          modelInfo.accuracyBroadTop1,
+        )} broad-family top-1.`,
       );
     }
-    evidence.push("Visual metrics remain shown for inspection, but the prediction comes from the trained backend.");
     return evidence;
   }
 
+  const f = features;
   if (f.darkRatio > 0.38) evidence.push("Large dark areas suggest heavier or moodier genres.");
   if (f.neonRatio > 0.16) evidence.push("Bright saturated colors point toward pop or electronic packaging.");
   if (f.edgeDensity > 0.32) evidence.push("Dense edges imply busy typography, collage, texture, or aggressive artwork.");
@@ -325,6 +321,29 @@ function formatPercent(value) {
 
 function broadGenreFor(item) {
   return item.broadGenreDisplay || broadGenreByGenre[item.genre] || item.broadGenre || "--";
+}
+
+function renderSimilarExamples(examples = [], top) {
+  similarSummary.textContent = top ? `${top.genre} / ${broadGenreFor(top)}` : "Pick a cover to compare";
+  if (!examples.length) {
+    similarGrid.innerHTML = `<p class="empty-state">No similar covers are available for this prediction yet.</p>`;
+    return;
+  }
+
+  similarGrid.innerHTML = examples
+    .slice(0, 3)
+    .map(
+      (example) => `
+        <article class="similar-card">
+          <img src="${example.imageUrl}" alt="">
+          <div>
+            <strong>${example.actualDisplay}</strong>
+            <span>${example.predictedDisplay} match</span>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderModelPill(text) {
@@ -347,7 +366,7 @@ async function refreshBackendStatus() {
   }
 }
 
-function renderResults(features, results, modelInfo = {}) {
+function renderResults(features, results, modelInfo = {}, similarExamples = []) {
   const top = results[0];
   primaryGenre.textContent = top.genre;
   primaryBroadGenre.textContent = `Broad genre: ${broadGenreFor(top)}`;
@@ -355,7 +374,7 @@ function renderResults(features, results, modelInfo = {}) {
   renderModelPill(modelInfo.source === "trained" ? "Trained CLIP model" : "Visual heuristic model");
 
   probabilityList.innerHTML = results
-    .slice(0, 6)
+    .slice(0, 4)
     .map(
       (item) => `
         <div class="probability-row">
@@ -372,10 +391,7 @@ function renderResults(features, results, modelInfo = {}) {
     )
     .join("");
 
-  metricBrightness.textContent = formatPercent(features.brightness);
-  metricSaturation.textContent = formatPercent(features.saturation);
-  metricContrast.textContent = formatPercent(features.contrast);
-  metricEdges.textContent = formatPercent(features.edgeDensity);
+  renderSimilarExamples(similarExamples, top);
 
   evidenceList.innerHTML = featureEvidence(features, results, modelInfo)
     .map((item) => `<li>${item}</li>`)
@@ -411,7 +427,10 @@ async function predictWithBackend() {
       source: "trained",
       accuracyTop1: payload.accuracyTop1,
       accuracyTop3: payload.accuracyTop3,
+      accuracyBroadTop1: payload.accuracyBroadTop1,
+      hierarchicalScore: payload.hierarchicalScore,
     },
+    similarExamples: payload.similarExamples || [],
   };
 }
 
@@ -423,7 +442,12 @@ async function runPrediction() {
 
   try {
     const backendPrediction = await predictWithBackend();
-    renderResults(features, backendPrediction.results, backendPrediction.modelInfo);
+    renderResults(
+      features,
+      backendPrediction.results,
+      backendPrediction.modelInfo,
+      backendPrediction.similarExamples,
+    );
   } catch (error) {
     renderModelPill("Visual heuristic model");
   }
@@ -444,80 +468,16 @@ function loadFile(file) {
   reader.readAsDataURL(file);
 }
 
-function drawSampleCover(type) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+function loadSampleCover(type) {
+  const imagePath = sampleImageByType[type];
+  if (!imagePath) return;
 
-  if (type === "electronic") {
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#06152c");
-    gradient.addColorStop(0.45, "#00d5cf");
-    gradient.addColorStop(1, "#fa4faf");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
-    ctx.lineWidth = 8;
-    for (let i = 0; i < 11; i += 1) {
-      ctx.beginPath();
-      ctx.moveTo(80 + i * 58, 94);
-      ctx.lineTo(620 - i * 26, 628);
-      ctx.stroke();
-    }
-  }
-
-  if (type === "metal") {
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const gradient = ctx.createRadialGradient(360, 360, 40, 360, 360, 470);
-    gradient.addColorStop(0, "#8e211e");
-    gradient.addColorStop(1, "#050505");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "#d8d1c5";
-    ctx.lineWidth = 7;
-    for (let i = 0; i < 19; i += 1) {
-      ctx.beginPath();
-      ctx.moveTo(80 + i * 31, 160 + (i % 3) * 28);
-      ctx.lineTo(164 + i * 24, 588 - (i % 4) * 42);
-      ctx.stroke();
-    }
-  }
-
-  if (type === "jazz") {
-    ctx.fillStyle = "#eee2c6";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#172031";
-    ctx.fillRect(0, 432, canvas.width, 168);
-    ctx.fillStyle = "#c8a33f";
-    ctx.beginPath();
-    ctx.arc(258, 320, 136, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#172031";
-    ctx.fillRect(400, 120, 48, 428);
-    ctx.fillRect(470, 182, 42, 366);
-  }
-
-  if (type === "pop") {
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#ff5d8f");
-    gradient.addColorStop(0.52, "#f9de55");
-    gradient.addColorStop(1, "#58bfd3");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.66)";
-    for (let i = 0; i < 12; i += 1) {
-      ctx.beginPath();
-      ctx.arc(110 + (i % 4) * 165, 120 + Math.floor(i / 4) * 165, 52, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = "#171514";
-    ctx.fillRect(128, 286, 464, 112);
-  }
-
-  ctx.fillStyle = "rgba(255, 253, 248, 0.86)";
-  ctx.font = "800 54px Inter, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(type.toUpperCase(), canvas.width / 2, 666);
-  runPrediction();
+  const img = new Image();
+  img.onload = () => {
+    drawImageToCanvas(img);
+    runPrediction();
+  };
+  img.src = `/api/artwork/${imagePath}`;
 }
 
 fileInput.addEventListener("change", (event) => {
@@ -540,7 +500,7 @@ dropZone.addEventListener("drop", (event) => {
 });
 
 document.querySelectorAll("[data-sample]").forEach((button) => {
-  button.addEventListener("click", () => drawSampleCover(button.dataset.sample));
+  button.addEventListener("click", () => loadSampleCover(button.dataset.sample));
 });
 
 resetCanvas();

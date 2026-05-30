@@ -256,6 +256,23 @@ def comparison_model_summaries() -> list[dict]:
     return summaries
 
 
+def genre_examples(label: str, limit: int = 6) -> list[dict]:
+    examples = read_json(EXAMPLES_PATH, [])
+    exact_matches = [
+        example
+        for example in examples
+        if example.get("actual") == label and example.get("predicted") == label
+    ]
+    if len(exact_matches) < limit:
+        exact_matches.extend(
+            example
+            for example in examples
+            if example.get("actual") == label and example not in exact_matches
+        )
+    ranked = sorted(exact_matches, key=lambda example: example.get("confidence", 0), reverse=True)
+    return normalize_examples(ranked[:limit])
+
+
 def image_from_upload(raw_bytes: bytes) -> Image.Image:
     try:
         return Image.open(BytesIO(raw_bytes)).convert("RGB")
@@ -376,6 +393,19 @@ def model_examples(
     }
 
 
+@app.get("/api/genre-examples/{label}")
+def examples_for_genre(label: str, limit: int = Query(default=6, ge=1, le=12)):
+    if label not in DISPLAY_LABELS:
+        raise HTTPException(status_code=404, detail="Unknown genre.")
+    return {
+        "label": label,
+        "genre": display_label(label),
+        "broadGenre": broad_genre(label),
+        "broadGenreDisplay": display_broad_label(label),
+        "examples": genre_examples(label, limit=limit),
+    }
+
+
 @app.get("/api/artwork/{image_path:path}")
 def artwork(image_path: str):
     candidate = (ROOT / image_path).resolve()
@@ -399,5 +429,8 @@ async def predict(file: UploadFile = File(...)):
         "clipModel": metrics.get("clip_model", "openai/clip-vit-base-patch32"),
         "accuracyTop1": metrics.get("accuracy_top_1"),
         "accuracyTop3": metrics.get("accuracy_top_3"),
+        "accuracyBroadTop1": metrics.get("accuracy_broad_top_1"),
+        "hierarchicalScore": metrics.get("hierarchical_score"),
         "predictions": predictions,
+        "similarExamples": genre_examples(predictions[0]["label"]) if predictions else [],
     }

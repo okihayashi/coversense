@@ -10,20 +10,61 @@
     <main class="app-shell">
       <section class="workspace" aria-label="Album cover genre predictor">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">CoverSense</p>
-            <h1>Genre inference from cover art</h1>
-          </div>
+          <a class="brand-mark" href="/" aria-label="CoverSense home">
+            <span class="brand-glyph" aria-hidden="true"></span>
+            CoverSense
+          </a>
+          <nav class="top-nav" aria-label="Primary navigation">
+            <a href="#predictor">Predict</a>
+            <a href="/admin">Models</a>
+            <a href="/admin">Evaluation</a>
+            <a href="https://github.com/okihayashi/coversense">GitHub</a>
+          </nav>
           <div class="topbar-actions">
-            <a class="admin-link" href="/admin">Admin</a>
             <div class="model-pill" aria-label="Current model type">
               <span class="status-dot"></span>
               Checking model
             </div>
+            <a class="admin-link" href="/admin">Dashboard</a>
           </div>
         </header>
 
-        <div class="main-grid">
+        <section class="hero-section" aria-labelledby="heroTitle">
+          <div class="hero-copy">
+            <p class="eyebrow">Album intelligence</p>
+            <h1 id="heroTitle">Genre inference from cover art.</h1>
+            <p class="hero-subtitle">
+              Upload artwork, inspect the prediction, and review broad-family matches when the model is close but not exact.
+            </p>
+            <div class="hero-actions">
+              <a class="hero-primary" href="#predictor">Try a cover</a>
+              <a class="hero-secondary" href="/admin">View model reports</a>
+            </div>
+          </div>
+
+          <div class="hero-gallery" aria-hidden="true">
+            <div class="hero-grid"></div>
+            <article class="floating-cover cover-electronic">
+              <span>Electronic</span>
+            </article>
+            <article class="floating-cover cover-metal">
+              <span>Heavy Metal</span>
+            </article>
+            <article class="floating-cover cover-jazz">
+              <span>Jazz</span>
+            </article>
+            <article class="floating-cover cover-pop">
+              <span>Pop</span>
+            </article>
+            <div class="floating-insight">
+              <span>Top match</span>
+              <strong>Broad genre: Metal</strong>
+              <small>Near misses stay visible for review</small>
+            </div>
+          </div>
+        </section>
+
+        <div id="predictor" class="main-grid">
           <section class="input-panel" aria-label="Album cover input">
             <label class="drop-zone" id="dropZone">
               <input id="fileInput" type="file" accept="image/*">
@@ -32,7 +73,7 @@
               <span class="drop-meta">PNG, JPG, WebP</span>
             </label>
 
-            <div class="preview-wrap">
+            <div class="preview-wrap is-hidden" id="previewWrap">
               <canvas id="previewCanvas" width="720" height="720" aria-label="Album cover preview"></canvas>
             </div>
 
@@ -69,36 +110,23 @@
               <div id="probabilityList" class="probability-list" aria-live="polite"></div>
             </div>
 
-            <div class="metrics-grid" aria-label="Visual metrics">
-              <div class="metric-card">
-                <span>Brightness</span>
-                <strong id="metricBrightness">--</strong>
+            <div class="similar-panel">
+              <div class="section-heading-row">
+                <p class="section-label">Evidence</p>
+                <span id="similarSummary">Pick a cover to compare</span>
               </div>
-              <div class="metric-card">
-                <span>Saturation</span>
-                <strong id="metricSaturation">--</strong>
-              </div>
-              <div class="metric-card">
-                <span>Contrast</span>
-                <strong id="metricContrast">--</strong>
-              </div>
-              <div class="metric-card">
-                <span>Edge density</span>
-                <strong id="metricEdges">--</strong>
-              </div>
-            </div>
-
-            <div class="explain-panel">
-              <p class="section-label">Evidence</p>
               <ul id="evidenceList" class="evidence-list">
-                <li>Visual features will appear after analysis.</li>
+                <li>Model rationale will appear after a cover is analyzed.</li>
               </ul>
+              <div id="similarGrid" class="similar-grid" aria-live="polite">
+                <p class="empty-state">Held-out examples from the predicted category will appear here.</p>
+              </div>
             </div>
           </section>
         </div>
       </section>
     </main>
 
-    <script src="app.js?v=20260530-linear-ui"></script>
+    <script src="app.js?v=20260530-compact-inference"></script>
   </body>
 </html>
