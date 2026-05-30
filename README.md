@@ -1,10 +1,22 @@
 # CoverSense
 
-A static prototype for inferring a likely music genre from CD or album cover art.
+CoverSense infers likely music genres from CD or album cover art. The app pairs a React frontend with a FastAPI backend that serves trained CLIP-based classifiers, similar-cover evidence, and model evaluation reports.
 
-Open `index.html` in a browser, upload an image, or choose one of the generated samples. The static app includes a transparent heuristic predictor that reads brightness, saturation, contrast, color temperature, hue clusters, and edge density from the cover image.
+Upload artwork or choose one of the sample covers to inspect exact-genre and broad-genre predictions. The admin view compares model families, validation metrics, and failed artwork examples for error analysis.
 
-For trained predictions, run the Python backend. It serves the same app and powers `/api/predict` with the CLIP + logistic-regression model created by the training pipeline.
+## Screenshots
+
+### Landing Page
+
+![CoverSense landing page](docs/screenshots/home.png)
+
+### Genre Prediction
+
+![CoverSense prediction screen](docs/screenshots/prediction.png)
+
+### Model Observability
+
+![CoverSense model observability dashboard](docs/screenshots/admin.png)
 
 ## Run App With Backend
 
