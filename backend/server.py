@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import csv
 import json
+from datetime import datetime, timezone
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -13,27 +15,50 @@ import torch
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel
 from transformers import CLIPModel, CLIPProcessor
 
 from ml.genre_taxonomy import broad_genre
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PATH = ROOT / "models" / "coversense_clip_classifier.joblib"
-METRICS_PATH = ROOT / "reports" / "metrics.json"
-FAILURES_PATH = ROOT / "reports" / "failures.json"
-EXAMPLES_PATH = ROOT / "reports" / "eval_examples.json"
+ACTIVE_MODEL_RUN_ID = "clip-mlp-reviewed-hierarchical"
+MODEL_PATH = ROOT / "models" / ACTIVE_MODEL_RUN_ID / "coversense_clip_classifier.joblib"
+METRICS_PATH = ROOT / "reports" / "model_runs" / ACTIVE_MODEL_RUN_ID / "metrics.json"
+FAILURES_PATH = ROOT / "reports" / "model_runs" / ACTIVE_MODEL_RUN_ID / "failures.json"
+EXAMPLES_PATH = ROOT / "reports" / "model_runs" / ACTIVE_MODEL_RUN_ID / "eval_examples.json"
+LEGACY_MODEL_PATH = ROOT / "models" / "coversense_clip_classifier.joblib"
+LEGACY_METRICS_PATH = ROOT / "reports" / "metrics.json"
+LEGACY_FAILURES_PATH = ROOT / "reports" / "failures.json"
+LEGACY_EXAMPLES_PATH = ROOT / "reports" / "eval_examples.json"
 CNN_MODEL_PATH = ROOT / "models" / "coversense_cnn.pt"
 CNN_METRICS_PATH = ROOT / "reports" / "cnn_metrics.json"
 CNN_FAILURES_PATH = ROOT / "reports" / "cnn_failures.json"
 CNN_EXAMPLES_PATH = ROOT / "reports" / "cnn_eval_examples.json"
 MODEL_RUNS_DIR = ROOT / "reports" / "model_runs"
 MODEL_RUN_ARTIFACTS_DIR = ROOT / "models" / "model_runs"
+LABEL_REVIEW_PATH = ROOT / "data" / "label_reviews.csv"
+LABEL_REVIEW_FIELDNAMES = [
+    "image_path",
+    "dataset",
+    "original_label",
+    "suggested_label",
+    "review_status",
+    "reviewed_label",
+    "secondary_labels",
+    "reason",
+    "reviewer",
+    "reviewed_at",
+]
 CLIP_CLASSIFIER_RUNS = [
     ("clip-logreg", "CLIP + Logistic Regression", "logreg"),
     ("clip-linear-svc", "CLIP + Linear SVC", "linear-svc"),
     ("clip-random-forest", "CLIP + Random Forest", "random-forest"),
     ("clip-mlp", "CLIP + MLP", "mlp"),
+    ("clip-mlp-reviewed", "CLIP + MLP Reviewed Labels", "mlp"),
+    ("clip-mlp-reviewed-broad-weighted", "CLIP + MLP Broad Weighted", "mlp-broad-weighted"),
+    ("clip-mlp-reviewed-broad-first", "CLIP + MLP Broad First", "mlp-broad-first"),
+    ("clip-mlp-reviewed-hierarchical", "CLIP + MLP Hierarchical", "mlp-hierarchical"),
 ]
 DISPLAY_LABELS = {
     "blues": "Blues",
@@ -124,6 +149,145 @@ def read_json(path: Path, default):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def file_mtime_iso(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+
+
+class LabelReviewDecision(BaseModel):
+    imagePath: str
+    dataset: str = "hf"
+    originalLabel: str
+    suggestedLabel: str | None = None
+    reviewStatus: str
+    reviewedLabel: str | None = None
+    secondaryLabels: list[str] = []
+    reason: str = ""
+    reviewer: str = "okihayashi"
+
+
+def read_label_reviews() -> dict[str, dict[str, str]]:
+    if not LABEL_REVIEW_PATH.exists():
+        return {}
+    with LABEL_REVIEW_PATH.open(newline="", encoding="utf-8") as file:
+        return {row["image_path"]: row for row in csv.DictReader(file)}
+
+
+def write_label_reviews(rows: dict[str, dict[str, str]]) -> None:
+    LABEL_REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with LABEL_REVIEW_PATH.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=LABEL_REVIEW_FIELDNAMES)
+        writer.writeheader()
+        for row in sorted(rows.values(), key=lambda item: item["image_path"]):
+            writer.writerow({field: row.get(field, "") for field in LABEL_REVIEW_FIELDNAMES})
+
+
+def dataset_name_for_path(image_path: str) -> str:
+    if "musicbrainz_cover_art" in image_path:
+        return "musicbrainz"
+    if "album_covers_20_genres" in image_path:
+        return "hf"
+    return "unknown"
+
+
+def review_hint(example: dict) -> str:
+    actual = example.get("actual", "")
+    predicted = example.get("predicted", "")
+    error = example.get("errorType", "")
+    top_3_labels = [prediction.get("label") for prediction in example.get("topPredictions", [])[:3]]
+    top_3_broad_match = any(broad_genre(label) == broad_genre(actual) for label in top_3_labels)
+    if actual and actual not in top_3_labels and not top_3_broad_match:
+        return "Top-3 broad miss. Strong candidate for label noise, missing secondary labels, or taxonomy mismatch."
+    if error == "near_miss":
+        return "Possible multi-label or sibling-genre case. Review before changing."
+    if broad_genre(actual) == "rock" and broad_genre(predicted) == "metal":
+        return "Rock/metal boundary candidate. Often better as multi-label unless metadata is clear."
+    if {broad_genre(actual), broad_genre(predicted)} <= {"hiphop", "electronic"}:
+        return "Club/electronic/hip-hop boundary candidate. Could be overlap rather than a bad label."
+    return "High-confidence broad-family contradiction. Good candidate for label-noise review."
+
+
+def normalize_review_candidate(example: dict, review: dict[str, str] | None = None) -> dict:
+    item = normalize_examples([example])[0]
+    top_3_labels = [prediction.get("label") for prediction in item.get("topPredictions", [])[:3]]
+    actual = item.get("actual", "")
+    top_3_broad_match = any(broad_genre(label) == broad_genre(actual) for label in top_3_labels)
+    item["dataset"] = dataset_name_for_path(item.get("imagePath", ""))
+    item["suggestedLabel"] = item.get("predicted", "")
+    item["suggestedDisplay"] = display_label(item.get("suggestedLabel", ""))
+    item["top3Labels"] = top_3_labels
+    item["top3Miss"] = actual not in top_3_labels
+    item["top3BroadMiss"] = not top_3_broad_match
+    item["reviewHint"] = review_hint(item)
+    item["review"] = review
+    return item
+
+
+def review_source_path(source: str) -> Path:
+    if source == "musicbrainz":
+        reviewed_path = (
+            ROOT / "reports" / "datasets" / "musicbrainz" / "clip-mlp-reviewed-hierarchical" / "eval_examples.json"
+        )
+        fallback_path = ROOT / "reports" / "datasets" / "musicbrainz" / "hf-serving-model-eval" / "eval_examples.json"
+    else:
+        reviewed_path = MODEL_RUNS_DIR / "clip-mlp-reviewed-hierarchical" / "eval_examples.json"
+        fallback_path = MODEL_RUNS_DIR / "clip-mlp" / "eval_examples.json"
+    return reviewed_path if reviewed_path.exists() else fallback_path
+
+
+def label_review_candidates(
+    source: str,
+    status: str,
+    limit: int,
+    offset: int,
+    min_confidence: float,
+    error_type_filter: str,
+    issue_type: str = "top1_miss",
+) -> dict:
+    source_path = review_source_path(source)
+
+    reviews = read_label_reviews()
+    examples = read_json(source_path, [])
+    candidates = []
+    for example in examples:
+        top_3_labels = [prediction.get("label") for prediction in example.get("topPredictions", [])[:3]]
+        actual = example.get("actual", "")
+        top_3_miss = actual not in top_3_labels
+        top_3_broad_miss = not any(broad_genre(label) == broad_genre(actual) for label in top_3_labels)
+        if issue_type == "top3_miss":
+            if not top_3_miss or not top_3_broad_miss:
+                continue
+        elif example.get("correct"):
+            continue
+        if error_type_filter != "all" and example.get("errorType") != error_type_filter:
+            continue
+        if float(example.get("confidence", 0)) < min_confidence:
+            continue
+        image_path = example.get("imagePath", "")
+        review = reviews.get(image_path)
+        if status == "pending" and review:
+            continue
+        if status == "reviewed" and not review:
+            continue
+        if status not in {"all", "pending", "reviewed"} and (not review or review.get("review_status") != status):
+            continue
+        candidates.append(normalize_review_candidate(example, review))
+
+    candidates.sort(key=lambda item: item.get("confidence", 0), reverse=True)
+    window = candidates[offset : offset + limit]
+    return {
+        "source": source,
+        "status": status,
+        "offset": offset,
+        "limit": limit,
+        "issueType": issue_type,
+        "total": len(candidates),
+        "candidates": window,
+        "reviewFile": str(LABEL_REVIEW_PATH),
+    }
+
+
 def classifier_name(payload: dict, metrics: dict | None = None) -> str:
     if payload.get("classifier_name"):
         return payload["classifier_name"]
@@ -183,6 +347,8 @@ def model_summary(
         "artifactAvailable": artifact_path.exists(),
         "artifactPath": str(artifact_path),
         "metricsPath": str(metrics_path),
+        "metricsUpdatedAt": file_mtime_iso(metrics_path),
+        "artifactUpdatedAt": file_mtime_iso(artifact_path),
         "examplesAvailable": examples_path.exists(),
         "failuresAvailable": failures_path.exists(),
         "metrics": metrics,
@@ -196,26 +362,26 @@ def model_summary(
 def model_paths_for(model_id: str) -> tuple[Path, Path, Path, Path] | None:
     if model_id == "clip-classifier":
         return MODEL_PATH, METRICS_PATH, EXAMPLES_PATH, FAILURES_PATH
+    if model_id == "legacy-clip-classifier":
+        return LEGACY_MODEL_PATH, LEGACY_METRICS_PATH, LEGACY_EXAMPLES_PATH, LEGACY_FAILURES_PATH
     if model_id == "small-cnn":
         return CNN_MODEL_PATH, CNN_METRICS_PATH, CNN_EXAMPLES_PATH, CNN_FAILURES_PATH
     known_run_ids = {run_id for run_id, _, _ in CLIP_CLASSIFIER_RUNS}
     if model_id in known_run_ids:
         run_dir = MODEL_RUNS_DIR / model_id
-        artifact_path = MODEL_RUN_ARTIFACTS_DIR / model_id / "coversense_clip_classifier.joblib"
+        artifact_path = ROOT / "models" / model_id / "coversense_clip_classifier.joblib"
+        if not artifact_path.exists():
+            artifact_path = MODEL_RUN_ARTIFACTS_DIR / model_id / "coversense_clip_classifier.joblib"
         return artifact_path, run_dir / "metrics.json", run_dir / "eval_examples.json", run_dir / "failures.json"
     return None
 
 
 def comparison_model_summaries() -> list[dict]:
     summaries = []
-    active_classifier = classifier_name({}, read_metrics())
-    active_run_id = f"clip-{active_classifier}"
-    active_run_found = False
 
     for model_id, name, classifier in CLIP_CLASSIFIER_RUNS:
         artifact_path, metrics_path, examples_path, failures_path = model_paths_for(model_id)
-        is_serving = model_id == active_run_id
-        active_run_found = active_run_found or is_serving
+        is_serving = model_id == ACTIVE_MODEL_RUN_ID
         summary = model_summary(
             model_id=model_id,
             name=f"Serving {name}" if is_serving else name,
@@ -229,19 +395,6 @@ def comparison_model_summaries() -> list[dict]:
         summary["serving"] = is_serving
         summaries.append(summary)
 
-    if not active_run_found:
-        active_summary = model_summary(
-            model_id="clip-classifier",
-            name=f"Serving CLIP + {active_classifier.upper()}",
-            family="embedding-classifier",
-            artifact_path=MODEL_PATH,
-            metrics_path=METRICS_PATH,
-            examples_path=EXAMPLES_PATH,
-            failures_path=FAILURES_PATH,
-        )
-        active_summary["serving"] = True
-        summaries.insert(0, active_summary)
-
     summaries.append(
         model_summary(
             model_id="small-cnn",
@@ -253,7 +406,7 @@ def comparison_model_summaries() -> list[dict]:
             failures_path=CNN_FAILURES_PATH,
         )
     )
-    return summaries
+    return sorted(summaries, key=lambda summary: (not summary.get("serving", False), summary["name"]))
 
 
 def genre_examples(label: str, limit: int = 6) -> list[dict]:
@@ -351,14 +504,24 @@ def health():
     metrics = read_metrics()
     return {
         "ok": True,
+        "activeModelRunId": ACTIVE_MODEL_RUN_ID,
         "modelAvailable": MODEL_PATH.exists(),
         "modelPath": str(MODEL_PATH),
+        "modelUpdatedAt": file_mtime_iso(MODEL_PATH),
+        "metricsPath": str(METRICS_PATH),
+        "metricsUpdatedAt": file_mtime_iso(METRICS_PATH),
         "metrics": {
             "accuracyTop1": metrics.get("accuracy_top_1"),
             "accuracyTop3": metrics.get("accuracy_top_3"),
+            "accuracyBroadTop1": metrics.get("accuracy_broad_top_1"),
+            "accuracyBroadTop3": metrics.get("accuracy_broad_top_3"),
+            "farMissRate": metrics.get("far_miss_rate"),
+            "nearMissRate": metrics.get("near_miss_rate"),
+            "hierarchicalScore": metrics.get("hierarchical_score"),
             "trainSize": metrics.get("train_size"),
             "testSize": metrics.get("test_size"),
             "clipModel": metrics.get("clip_model"),
+            "classifier": metrics.get("classifier"),
         },
     }
 
@@ -391,6 +554,48 @@ def model_examples(
         "total": len(examples),
         "examples": normalize_examples(window),
     }
+
+
+@app.get("/api/review/candidates")
+def review_candidates(
+    source: str = Query(default="hf", pattern="^(hf|musicbrainz)$"),
+    status: str = Query(default="pending", pattern="^(all|pending|reviewed|keep|relabel|multi_label|exclude|needs_metadata)$"),
+    issue_type: str = Query(default="top1_miss", alias="issueType", pattern="^(top1_miss|top3_miss)$"),
+    error_type: str = Query(default="far_miss", alias="errorType", pattern="^(all|near_miss|far_miss)$"),
+    min_confidence: float = Query(default=0.9, alias="minConfidence", ge=0, le=1),
+    limit: int = Query(default=12, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    return label_review_candidates(source, status, limit, offset, min_confidence, error_type, issue_type)
+
+
+@app.post("/api/review/decision")
+def save_review_decision(decision: LabelReviewDecision):
+    if decision.reviewStatus not in {"keep", "relabel", "multi_label", "exclude", "needs_metadata"}:
+        raise HTTPException(status_code=400, detail="Unsupported review status.")
+    if decision.reviewedLabel and decision.reviewedLabel not in DISPLAY_LABELS:
+        raise HTTPException(status_code=400, detail="Unknown reviewed label.")
+    unknown_secondary = [label for label in decision.secondaryLabels if label not in DISPLAY_LABELS]
+    if unknown_secondary:
+        raise HTTPException(status_code=400, detail=f"Unknown secondary labels: {', '.join(unknown_secondary)}")
+
+    reviews = read_label_reviews()
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    row = {
+        "image_path": decision.imagePath,
+        "dataset": decision.dataset,
+        "original_label": decision.originalLabel,
+        "suggested_label": decision.suggestedLabel or "",
+        "review_status": decision.reviewStatus,
+        "reviewed_label": decision.reviewedLabel or "",
+        "secondary_labels": ",".join(decision.secondaryLabels),
+        "reason": decision.reason,
+        "reviewer": decision.reviewer,
+        "reviewed_at": reviewed_at,
+    }
+    reviews[decision.imagePath] = row
+    write_label_reviews(reviews)
+    return {"ok": True, "review": row, "reviewFile": str(LABEL_REVIEW_PATH)}
 
 
 @app.get("/api/genre-examples/{label}")
@@ -426,10 +631,14 @@ async def predict(file: UploadFile = File(...)):
 
     return {
         "model": f"clip-{classifier_name(load_predictor()['payload'], metrics)}",
+        "modelRunId": ACTIVE_MODEL_RUN_ID,
         "clipModel": metrics.get("clip_model", "openai/clip-vit-base-patch32"),
         "accuracyTop1": metrics.get("accuracy_top_1"),
         "accuracyTop3": metrics.get("accuracy_top_3"),
         "accuracyBroadTop1": metrics.get("accuracy_broad_top_1"),
+        "accuracyBroadTop3": metrics.get("accuracy_broad_top_3"),
+        "farMissRate": metrics.get("far_miss_rate"),
+        "nearMissRate": metrics.get("near_miss_rate"),
         "hierarchicalScore": metrics.get("hierarchical_score"),
         "predictions": predictions,
         "similarExamples": genre_examples(predictions[0]["label"]) if predictions else [],

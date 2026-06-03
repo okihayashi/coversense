@@ -15,6 +15,29 @@ const floatingCovers = [
 ];
 
 const pageSize = 18;
+const reviewPageSize = 12;
+const labelOptions = [
+  "blues",
+  "classical",
+  "country",
+  "deathmetal",
+  "doommetal",
+  "drumnbass",
+  "electronic",
+  "folk",
+  "grime",
+  "heavymetal",
+  "hiphop",
+  "jazz",
+  "lofi",
+  "pop",
+  "psychedelicrock",
+  "punk",
+  "reggae",
+  "rock",
+  "soul",
+  "techno",
+];
 
 function formatPercent(value) {
   if (value == null) return "--";
@@ -29,6 +52,18 @@ function formatPercentDetailed(value) {
 function formatNumber(value) {
   if (value == null) return "--";
   return new Intl.NumberFormat().format(value);
+}
+
+function displayFromLabel(label) {
+  return label
+    .replace("drumnbass", "drum & bass")
+    .replace("deathmetal", "death metal")
+    .replace("doommetal", "doom metal")
+    .replace("heavymetal", "heavy metal")
+    .replace("hiphop", "hip-hop")
+    .replace("lofi", "lo-fi")
+    .replace("psychedelicrock", "psychedelic rock")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function artworkUrl(imagePath) {
@@ -55,7 +90,13 @@ function predictionEvidence(predictions, modelInfo) {
     `Top alternatives: ${topAlternatives}. Similar held-out covers below provide a quick plausibility check.`,
   ];
 
-  if (modelInfo.accuracyTop1 != null && modelInfo.accuracyBroadTop1 != null) {
+  if (modelInfo.farMissRate != null && modelInfo.accuracyBroadTop3 != null) {
+    evidence.push(
+      `Current evaluation: ${formatPercent(modelInfo.accuracyBroadTop3)} broad-family top-3, ${formatPercent(
+        modelInfo.farMissRate,
+      )} far-miss rate.`,
+    );
+  } else if (modelInfo.accuracyTop1 != null && modelInfo.accuracyBroadTop1 != null) {
     evidence.push(
       `Held-out accuracy: ${formatPercent(modelInfo.accuracyTop1)} exact top-1, ${formatPercent(
         modelInfo.accuracyBroadTop1,
@@ -79,7 +120,9 @@ function useTheme() {
 
 function getCurrentPage() {
   if (!window.location.pathname.startsWith("/admin")) return "predict";
-  return window.location.hash === "#review" ? "review" : "models";
+  if (window.location.hash === "#review") return "review";
+  if (window.location.hash === "#errors") return "errors";
+  return "models";
 }
 
 function useCurrentPage() {
@@ -101,6 +144,27 @@ function useCurrentPage() {
   return currentPage;
 }
 
+function useHashScroll() {
+  useEffect(() => {
+    function scrollToCurrentHash() {
+      const id = window.location.hash.replace("#", "");
+      if (!id) return;
+      let attempts = 0;
+      function tryScroll() {
+        const target = document.getElementById(id);
+        if (target) target.scrollIntoView({ block: "start" });
+        attempts += 1;
+        if (attempts < 30) window.setTimeout(tryScroll, 100);
+      }
+      tryScroll();
+    }
+
+    scrollToCurrentHash();
+    window.addEventListener("hashchange", scrollToCurrentHash);
+    return () => window.removeEventListener("hashchange", scrollToCurrentHash);
+  }, []);
+}
+
 const secondaryLinks = [
   ["Data quality", "https://github.com/okihayashi/coversense/blob/main/ml/DATA_QUALITY.md"],
   ["Training notes", "https://github.com/okihayashi/coversense/blob/main/ml/README.md"],
@@ -112,6 +176,7 @@ function TopBar({ statusText, theme, onToggleTheme, currentPage }) {
     ["Predict", "/#predictor", currentPage === "predict"],
     ["Models", "/admin#models", currentPage === "models"],
     ["Review", "/admin#review", currentPage === "review"],
+    ["Errors", "/admin#errors", currentPage === "errors"],
   ];
 
   return (
@@ -170,8 +235,22 @@ function InferencePage({ statusText, setStatusText }) {
       })
       .then((payload) => {
         if (!active) return;
+        const metrics = payload.metrics || {};
         setBackendReady(Boolean(payload.modelAvailable));
-        setStatusText(payload.modelAvailable ? "Trained model ready" : "Model unavailable");
+        setModelInfo({
+          modelRunId: payload.activeModelRunId,
+          accuracyTop1: metrics.accuracyTop1,
+          accuracyTop3: metrics.accuracyTop3,
+          accuracyBroadTop1: metrics.accuracyBroadTop1,
+          accuracyBroadTop3: metrics.accuracyBroadTop3,
+          farMissRate: metrics.farMissRate,
+          hierarchicalScore: metrics.hierarchicalScore,
+        });
+        setStatusText(
+          payload.modelAvailable
+            ? `Reviewed MLP · far miss ${formatPercent(metrics.farMissRate)}`
+            : "Model unavailable",
+        );
       })
       .catch(() => {
         if (!active) return;
@@ -208,12 +287,15 @@ function InferencePage({ statusText, setStatusText }) {
       setSimilarExamples((payload.similarExamples || []).slice(0, 3));
       setModelInfo({
         model: payload.model,
+        modelRunId: payload.modelRunId,
         accuracyTop1: payload.accuracyTop1,
         accuracyTop3: payload.accuracyTop3,
         accuracyBroadTop1: payload.accuracyBroadTop1,
+        accuracyBroadTop3: payload.accuracyBroadTop3,
+        farMissRate: payload.farMissRate,
         hierarchicalScore: payload.hierarchicalScore,
       });
-      setStatusText("Trained CLIP model");
+      setStatusText(`Reviewed MLP · far miss ${formatPercent(payload.farMissRate)}`);
     } catch (predictionError) {
       setError(predictionError.message);
       setStatusText("Prediction failed");
@@ -374,6 +456,12 @@ function AdminPage({ setStatusText }) {
   const [failedOnly, setFailedOnly] = useState(true);
   const [exampleOffset, setExampleOffset] = useState(0);
   const [examplesPayload, setExamplesPayload] = useState({ examples: [], total: 0, offset: 0, limit: pageSize });
+  const [reviewSource, setReviewSource] = useState("hf");
+  const [reviewStatus, setReviewStatus] = useState("pending");
+  const [reviewIssue, setReviewIssue] = useState("top3_miss");
+  const [reviewOffset, setReviewOffset] = useState(0);
+  const [reviewPayload, setReviewPayload] = useState({ candidates: [], total: 0, offset: 0, limit: reviewPageSize });
+  const [reviewMessage, setReviewMessage] = useState("");
   const [error, setError] = useState("");
 
   const selectedModel = models.find((model) => model.id === selectedModelId);
@@ -408,6 +496,25 @@ function AdminPage({ setStatusText }) {
       .then(setExamplesPayload)
       .catch((requestError) => setError(requestError.message));
   }, [selectedModelId, failedOnly, exampleOffset]);
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      source: reviewSource,
+      status: reviewStatus,
+      issueType: reviewIssue,
+      errorType: reviewIssue === "top3_miss" ? "all" : "far_miss",
+      minConfidence: reviewIssue === "top3_miss" ? "0" : "0.9",
+      limit: String(reviewPageSize),
+      offset: String(reviewOffset),
+    });
+    fetch(`/api/review/candidates?${params}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Review queue request failed: ${response.status}`);
+        return response.json();
+      })
+      .then(setReviewPayload)
+      .catch((requestError) => setError(requestError.message));
+  }, [reviewSource, reviewStatus, reviewIssue, reviewOffset]);
 
   function selectModel(modelId) {
     setSelectedModelId(modelId);
@@ -460,6 +567,52 @@ function AdminPage({ setStatusText }) {
   }
 
   const currentEnd = Math.min(examplesPayload.offset + examplesPayload.examples.length, examplesPayload.total);
+  const reviewEnd = Math.min(reviewPayload.offset + reviewPayload.candidates.length, reviewPayload.total);
+
+  async function saveReview(candidate, reviewStatusValue, reviewedLabel = "", secondaryLabels = []) {
+    const payload = {
+      imagePath: candidate.imagePath,
+      dataset: candidate.dataset,
+      originalLabel: candidate.actual,
+      suggestedLabel: candidate.suggestedLabel,
+      reviewStatus: reviewStatusValue,
+      reviewedLabel,
+      secondaryLabels,
+      reason:
+        reviewStatusValue === "keep"
+          ? "Reviewed from high-confidence contradiction queue; original label kept."
+          : reviewStatusValue === "needs_metadata"
+            ? "Needs album or artist metadata before changing the label."
+            : `Reviewed from high-confidence contradiction queue; model suggested ${candidate.suggestedDisplay}.`,
+    };
+    const response = await fetch("/api/review/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`Could not save review: ${response.status}`);
+    await response.json();
+    setReviewMessage(`Saved ${candidate.actualDisplay} -> ${reviewStatusValue.replace("_", " ")}.`);
+    setReviewPayload((current) => ({
+      ...current,
+      total: Math.max(0, current.total - (reviewStatus === "pending" ? 1 : 0)),
+      candidates:
+        reviewStatus === "pending"
+          ? current.candidates.filter((item) => item.imagePath !== candidate.imagePath)
+          : current.candidates.map((item) =>
+              item.imagePath === candidate.imagePath
+                ? { ...item, review: { review_status: reviewStatusValue, reviewed_label: reviewedLabel } }
+                : item,
+            ),
+    }));
+  }
+
+  function candidateDecisionLabel(candidate) {
+    const status = candidate.review?.review_status;
+    if (!status) return "Pending";
+    if (status === "relabel") return `Relabel to ${displayFromLabel(candidate.review.reviewed_label)}`;
+    return status.replace("_", " ");
+  }
 
   return (
     <>
@@ -482,16 +635,16 @@ function AdminPage({ setStatusText }) {
                 <span>{model.name}</span>
                 <span>{modelStatus(model)}</span>
               </span>
-              <strong>{formatPercentDetailed(metrics.accuracy_top_1)}</strong>
+              <strong>{formatPercentDetailed(metrics.far_miss_rate)}</strong>
               <span className="model-card-meta">
-                Broad {formatPercentDetailed(metrics.accuracy_broad_top_1)} · Top-3 {formatPercentDetailed(metrics.accuracy_top_3)}
+                Far miss · broad top-3 {formatPercentDetailed(metrics.accuracy_broad_top_3)}
               </span>
             </button>
           );
         })}
       </section>
 
-      <section id="review" className="admin-detail-grid">
+      <section id="errors" className="admin-detail-grid">
         <div className="admin-panel">
           <div className="admin-panel-header">
             <div>
@@ -572,6 +725,148 @@ function AdminPage({ setStatusText }) {
           </div>
         </div>
       </section>
+
+      <section id="review" className="admin-panel label-review-panel" aria-label="Dataset label review queue">
+        <div className="admin-panel-header">
+          <div>
+            <p className="section-label">Dataset Review</p>
+            <h2>Potential mislabeled artwork</h2>
+            <p className="review-intro">
+              These are not automatic corrections. They are covers where the current dataset label and the model's visual read strongly disagree.
+            </p>
+          </div>
+          <div className="review-controls">
+            <label>
+              Source
+              <select
+                value={reviewSource}
+                onChange={(event) => {
+                  setReviewSource(event.target.value);
+                  setReviewOffset(0);
+                }}
+              >
+                <option value="hf">HF dataset</option>
+                <option value="musicbrainz">MusicBrainz</option>
+              </select>
+            </label>
+            <label>
+              Queue
+              <select
+                value={reviewIssue}
+                onChange={(event) => {
+                  setReviewIssue(event.target.value);
+                  setReviewOffset(0);
+                }}
+              >
+                <option value="top3_miss">Top-3 broad misses</option>
+                <option value="top1_miss">High-confidence top-1 far misses</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select
+                value={reviewStatus}
+                onChange={(event) => {
+                  setReviewStatus(event.target.value);
+                  setReviewOffset(0);
+                }}
+              >
+                <option value="pending">Pending</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="keep">Kept</option>
+                <option value="relabel">Relabeled</option>
+                <option value="multi_label">Multi-label</option>
+                <option value="exclude">Excluded</option>
+                <option value="needs_metadata">Needs metadata</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <div className="pagination-actions">
+              <button
+                className="icon-page-button"
+                type="button"
+                aria-label="Previous review page"
+                disabled={reviewOffset === 0}
+                onClick={() => setReviewOffset((offset) => Math.max(0, offset - reviewPageSize))}
+              >
+                &lt;
+              </button>
+              <span className="count-pill">
+                {reviewPayload.total === 0
+                  ? "0"
+                  : `${formatNumber(reviewPayload.offset + 1)}-${formatNumber(reviewEnd)} of ${formatNumber(reviewPayload.total)}`}
+              </span>
+              <button
+                className="icon-page-button"
+                type="button"
+                aria-label="Next review page"
+                disabled={reviewOffset + reviewPageSize >= reviewPayload.total}
+                onClick={() => setReviewOffset((offset) => offset + reviewPageSize)}
+              >
+                &gt;
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="review-grid" aria-live="polite">
+          {reviewPayload.candidates.length > 0 ? (
+            reviewPayload.candidates.map((candidate) => (
+              <article className="review-card" key={candidate.imagePath}>
+                <img src={candidate.imageUrl} alt="" />
+                <div className="review-card-body">
+                  <span className="review-status">{candidateDecisionLabel(candidate)}</span>
+                  <div className="review-label-compare" aria-label="Dataset label and model suggestion">
+                    <span>
+                      <small>Dataset label</small>
+                      <strong>{candidate.actualDisplay}</strong>
+                    </span>
+                    <span>
+                      <small>Model suggests</small>
+                      <strong>{candidate.suggestedDisplay}</strong>
+                    </span>
+                  </div>
+                  <div className="review-reason">
+                    <strong>Why this is shown</strong>
+                    <p>
+                      The model gives {formatPercentDetailed(candidate.confidence)} confidence to {candidate.suggestedDisplay}.
+                      {candidate.top3BroadMiss ? " The dataset broad genre is missing from the top 3 predictions." : ""}
+                      Broad family: {candidate.actualBroad}{" vs "}{candidate.predictedBroad}.
+                    </p>
+                  </div>
+                  <p className="review-hint">{candidate.reviewHint}</p>
+                  <div className="review-actions">
+                    <button type="button" onClick={() => saveReview(candidate, "keep")}>Keep dataset label</button>
+                    <button type="button" onClick={() => saveReview(candidate, "relabel", candidate.suggestedLabel)}>Accept suggestion</button>
+                    <button
+                      type="button"
+                      onClick={() => saveReview(candidate, "multi_label", candidate.actual, [candidate.suggestedLabel])}
+                    >
+                      Both are plausible
+                    </button>
+                    <button type="button" onClick={() => saveReview(candidate, "exclude")}>Remove from training</button>
+                    <button type="button" onClick={() => saveReview(candidate, "needs_metadata")}>Needs metadata</button>
+                  </div>
+                  <label className="review-select">
+                    Choose another corrected label
+                    <select
+                      defaultValue={candidate.suggestedLabel}
+                      onChange={(event) => saveReview(candidate, "relabel", event.target.value)}
+                    >
+                      {labelOptions.map((label) => (
+                        <option value={label} key={label}>{displayFromLabel(label)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="empty-state">{reviewMessage || error || "No label-review candidates match these filters."}</p>
+          )}
+        </div>
+        {reviewMessage && <p className="review-message">{reviewMessage}</p>}
+      </section>
     </>
   );
 }
@@ -581,6 +876,7 @@ export default function App() {
   const [statusText, setStatusText] = useState("Checking model");
   const isAdmin = window.location.pathname.startsWith("/admin");
   const currentPage = useCurrentPage();
+  useHashScroll();
 
   return (
     <main className="app-shell">

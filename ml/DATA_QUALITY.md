@@ -30,7 +30,15 @@ Prioritize examples that are likely mislabeled:
 4. Metadata lookup mismatch: artist/album metadata from a trusted music catalog disagrees with the dataset label.
 5. Duplicate artwork with conflicting labels.
 
-The admin failure view should become the review queue: show artwork, original label, predicted label, broad genre, confidence, and actions for approve correction, keep original, or exclude.
+The admin review page now includes a dataset-label queue. It shows artwork, original label, suggested label, broad-genre contradiction, confidence, and actions for keep, relabel, multi-label, exclude, or needs metadata. Saved decisions are written to `data/label_reviews.csv`.
+
+To produce a reviewed training metadata file:
+
+```bash
+uv run python ml/apply_label_reviews.py
+```
+
+That writes `data/album_covers_20_genres_reviewed/metadata.csv`, which can be passed to `ml/build_embeddings.py`.
 
 ## Training Rules
 

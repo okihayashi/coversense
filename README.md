@@ -68,6 +68,27 @@ uv run python ml/predict_cover.py path/to/cover.jpg
 
 Remove `--max-per-label 50` when you are ready to train on the full dataset.
 
+Build a second dataset source without mixing it into the Hugging Face baseline:
+
+```bash
+uv run python ml/download_musicbrainz_cover_art.py --max-per-label 100
+uv run python ml/build_embeddings.py \
+  --metadata data/musicbrainz_cover_art/metadata.csv \
+  --output embeddings/musicbrainz-clip-vit-base-patch32.npz
+uv run python ml/train_classifier.py \
+  --embeddings embeddings/musicbrainz-clip-vit-base-patch32.npz \
+  --classifier logreg \
+  --model-dir models/datasets/musicbrainz/clip-logreg \
+  --report-dir reports/datasets/musicbrainz/clip-logreg
+uv run python ml/evaluate_classifier.py \
+  --model models/coversense_clip_classifier.joblib \
+  --embeddings embeddings/musicbrainz-clip-vit-base-patch32.npz \
+  --report-dir reports/datasets/musicbrainz/hf-serving-model-eval
+uv run python ml/compare_dataset_sources.py
+```
+
+The comparison report is written to `reports/dataset_source_comparison.md`.
+
 Try other classifier heads without rebuilding embeddings:
 
 ```bash

@@ -11,6 +11,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, top_k_accuracy_score
@@ -19,6 +20,11 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import LinearSVC
+
+try:
+    from ml.broad_aware_classifier import BroadAwareClassifier, HierarchicalClassifier
+except ModuleNotFoundError:  # pragma: no cover - supports running as python ml/train_classifier.py
+    from broad_aware_classifier import BroadAwareClassifier, HierarchicalClassifier
 
 from embeddings import DEFAULT_CLIP_MODEL, DEFAULT_EMBEDDING_DIR
 from genre_taxonomy import broad_genre, error_type, hierarchy_metrics
@@ -42,6 +48,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-iter", type=int, default=2000)
+    parser.add_argument(
+        "--prediction-policy",
+        choices=["exact", "broad-weighted", "broad-first", "hierarchical"],
+        default="exact",
+        help="Use broad-family-aware probabilities to reduce unrelated broad-family misses.",
+    )
     return parser.parse_args()
 
 
@@ -68,7 +80,7 @@ def build_classifier(name: str, seed: int, max_iter: int):
                 (
                     "classifier",
                     CalibratedClassifierCV(
-                        LinearSVC(C=1.0, class_weight="balanced", random_state=seed),
+                        LinearSVC(C=1.0, class_weight="balanced", max_iter=max_iter, random_state=seed),
                         cv=3,
                     ),
                 ),
@@ -120,15 +132,23 @@ def evaluation_examples(
     for image_path, actual_index, row in zip(image_paths, y_true, probabilities):
         ranked_indices = np.argsort(row)[::-1][:top_k]
         predicted_index = int(ranked_indices[0])
+        top_3_labels = [labels[int(index)] for index in ranked_indices[:3]]
+        actual_label = labels[int(actual_index)]
+        actual_broad = broad_genre(actual_label)
+        top_3_broad_correct = any(broad_genre(label) == actual_broad for label in top_3_labels)
         examples.append(
             {
                 "imagePath": str(image_path),
-                "actual": labels[int(actual_index)],
+                "actual": actual_label,
                 "predicted": labels[predicted_index],
-                "actualBroad": broad_genre(labels[int(actual_index)]),
+                "actualBroad": actual_broad,
                 "predictedBroad": broad_genre(labels[predicted_index]),
                 "correct": predicted_index == int(actual_index),
-                "errorType": error_type(labels[int(actual_index)], labels[predicted_index]),
+                "top3Correct": actual_label in top_3_labels,
+                "top3Miss": actual_label not in top_3_labels,
+                "top3BroadCorrect": top_3_broad_correct,
+                "top3BroadMiss": not top_3_broad_correct,
+                "errorType": error_type(actual_label, labels[predicted_index]),
                 "confidence": float(row[predicted_index]),
                 "topPredictions": [
                     {"label": labels[int(index)], "probability": float(row[int(index)])}
@@ -162,14 +182,31 @@ def main() -> None:
 
     classifier = build_classifier(args.classifier, args.seed, args.max_iter)
     classifier.fit(x[train_idx], y_train)
+    labels_out = label_encoder.classes_.tolist()
+    if args.prediction_policy in {"broad-weighted", "broad-first"}:
+        classifier = BroadAwareClassifier(classifier, labels_out, args.prediction_policy)
+    elif args.prediction_policy == "hierarchical":
+        broad_label_encoder = LabelEncoder()
+        broad_labels = np.array([broad_genre(label) for label in labels])
+        y_broad = broad_label_encoder.fit_transform(broad_labels)
+        broad_classifier = clone(build_classifier(args.classifier, args.seed, args.max_iter))
+        broad_classifier.fit(x[train_idx], y_broad[train_idx])
+        classifier = HierarchicalClassifier(
+            classifier,
+            broad_classifier,
+            labels_out,
+            broad_label_encoder.classes_.tolist(),
+        )
 
     predictions = classifier.predict(x[test_idx])
     probabilities = classifier.predict_proba(x[test_idx])
-    labels_out = label_encoder.classes_.tolist()
+    classifier_name = args.classifier if args.prediction_policy == "exact" else f"{args.classifier}-{args.prediction_policy}"
 
     metrics = {
         "clip_model": args.clip_model,
-        "classifier": args.classifier,
+        "classifier": classifier_name,
+        "base_classifier": args.classifier,
+        "prediction_policy": args.prediction_policy,
         "embedding_cache": args.embeddings.as_posix(),
         "train_size": int(len(train_idx)),
         "test_size": int(len(test_idx)),
@@ -181,7 +218,9 @@ def main() -> None:
 
     payload = {
         "clip_model": args.clip_model,
-        "classifier_name": args.classifier,
+        "classifier_name": classifier_name,
+        "base_classifier": args.classifier,
+        "prediction_policy": args.prediction_policy,
         "label_encoder": label_encoder,
         "classifier": classifier,
     }

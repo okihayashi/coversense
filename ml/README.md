@@ -38,12 +38,43 @@ Use `--max-per-label` for a quick smoke test:
 uv run python ml/download_hf_album_covers.py --max-per-label 50
 ```
 
+## Build A Second Dataset Source
+
+Keep the Hugging Face dataset as the baseline and build other sources into
+separate folders. The MusicBrainz + Cover Art Archive path searches release
+groups by genre tag, downloads front-cover thumbnails, and writes the same
+`metadata.csv` shape used by the current training pipeline:
+
+```bash
+uv run python ml/download_musicbrainz_cover_art.py --max-per-label 100
+```
+
+For a tiny smoke test:
+
+```bash
+uv run python ml/download_musicbrainz_cover_art.py --labels rock,jazz,pop --max-per-label 5
+```
+
+The MusicBrainz web service expects a meaningful `User-Agent` and should be
+called politely. The downloader defaults to a 1.1 second delay between
+MusicBrainz search requests.
+
 ## Train Classifier
 
 For fast iteration, build embeddings once:
 
 ```bash
 uv run python ml/build_embeddings.py
+```
+
+After reviewing suspected bad labels in the admin page, create a derived
+metadata file before rebuilding embeddings:
+
+```bash
+uv run python ml/apply_label_reviews.py
+uv run python ml/build_embeddings.py \
+  --metadata data/album_covers_20_genres_reviewed/metadata.csv \
+  --output embeddings/hf-reviewed-clip-vit-base-patch32.npz
 ```
 
 Then train any supported classifier head:
@@ -53,6 +84,86 @@ uv run python ml/train_classifier.py --classifier logreg
 uv run python ml/train_classifier.py --classifier linear-svc
 uv run python ml/train_classifier.py --classifier random-forest
 uv run python ml/train_classifier.py --classifier mlp
+```
+
+To train the same classifier family on the MusicBrainz/Cover Art Archive
+source, keep artifacts in dataset-specific paths:
+
+```bash
+uv run python ml/build_embeddings.py \
+  --metadata data/musicbrainz_cover_art/metadata.csv \
+  --output embeddings/musicbrainz-clip-vit-base-patch32.npz
+
+uv run python ml/train_classifier.py \
+  --embeddings embeddings/musicbrainz-clip-vit-base-patch32.npz \
+  --classifier mlp \
+  --model-dir models/datasets/musicbrainz/clip-mlp \
+  --report-dir reports/datasets/musicbrainz/clip-mlp
+```
+
+For a very small pilot dataset, logistic regression is usually a better
+baseline than MLP:
+
+```bash
+uv run python ml/train_classifier.py \
+  --embeddings embeddings/musicbrainz-clip-vit-base-patch32.npz \
+  --classifier logreg \
+  --model-dir models/datasets/musicbrainz/clip-logreg \
+  --report-dir reports/datasets/musicbrainz/clip-logreg
+```
+
+Evaluate the current Hugging Face-trained serving model on the MusicBrainz
+embedding cache:
+
+```bash
+uv run python ml/evaluate_classifier.py \
+  --model models/coversense_clip_classifier.joblib \
+  --embeddings embeddings/musicbrainz-clip-vit-base-patch32.npz \
+  --report-dir reports/datasets/musicbrainz/hf-serving-model-eval
+```
+
+Compare source coverage and metrics:
+
+```bash
+uv run python ml/compare_dataset_sources.py
+```
+
+This writes:
+
+```text
+reports/dataset_source_comparison.md
+reports/dataset_source_comparison.json
+```
+
+## Reviewed Dataset Loop
+
+After reviewing label-noise candidates in the admin UI, run the reusable review
+loop instead of stitching together one-off commands:
+
+```bash
+uv run python ml/review_loop.py --all
+```
+
+This performs the full current cleanup cycle:
+
+1. Apply `data/label_reviews.csv` into `data/album_covers_20_genres_reviewed/metadata.csv`.
+2. Relabel and filter `embeddings/hf-reviewed-clip-vit-base-patch32.npz` without recomputing CLIP vectors.
+3. Retrain the serving reviewed hierarchical MLP at `models/clip-mlp-reviewed-hierarchical`.
+4. Evaluate HF-on-MusicBrainz and MusicBrainz-on-HF.
+5. Refresh `reports/reviewed_dataset_cross_comparison.md`.
+6. Print pending top-3 broad-family miss queue counts.
+
+For a lighter check without retraining:
+
+```bash
+uv run python ml/review_loop.py --queue-counts
+```
+
+For a partial cycle:
+
+```bash
+uv run python ml/review_loop.py --apply-reviews --refresh-cache --train
+uv run python ml/review_loop.py --cross-eval --compare --queue-counts
 ```
 
 The original one-command CLIP + logistic-regression path still works:
